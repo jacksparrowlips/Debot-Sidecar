@@ -138,9 +138,10 @@ packages/
 
 ### 7.1 捕获层（扩展）
 
-- **主通道**：`src/injected` 以 `<script>` 注入 MAIN world，包装 `window.fetch`、`XMLHttpRequest`、`WebSocket`（onmessage / response 拦截），捕获 DeBot 页面自身请求得到的响应体；经 `window.postMessage` 发给 content script，content script 转发 service worker，SW 去指纹（url+body hash）后 WS 推给服务
-- **兜底通道**（DOM）：`MutationObserver` 监听信号列表容器，解析渲染后的节点。主通道在 P0 验证可用前，此通道是唯一可用通道；验证主通道可用后，DOM 通道降为不实现（仅保留目录位）
-- content script matches：`【P0 待确认】` AI Signal 页面的 URL match pattern（占位 `https://debot.ai/*`）
+- **主通道（P0 已实证可行）**：`src/injected` 以 `<script>` 注入 MAIN world，包装 `window.fetch`（以 `response.clone()` 读取响应体，不消费原流，页面逻辑零感知）与 `XMLHttpRequest`；若后续发现 SSE/WS 接口则一并包装。经 `window.postMessage` 发给 content script，content script 转发 service worker，SW 去指纹（url+body hash）后 WS 推给服务
+- **URL 白名单**：上报 `https://debot.ai/api/community/signal/` 前缀请求（接口实测见附录 A）；其余 `debot.ai/api/*` 存 raw 不解析（用于发现新接口）。查询参数 `request_id` 为追踪 UUID，忽略；`chain` 参数存为信号属性（页面级链筛选）
+- **兜底通道**（DOM）：主通道已实证可用，DOM 通道降为不实现（仅保留目录位）
+- content script matches：`https://debot.ai/*`（P0 已确认页面：`https://debot.ai/?chain=bsc`）
 - host_permissions：`https://debot.ai/*` + `http://127.0.0.1/*`（WS 连本地服务）
 
 ### 7.2 本地服务与信号处理管线
@@ -149,8 +150,12 @@ packages/
 
 ```
 WS 收到 capture.raw
-→ capture-parser：按 signal schema（版本化，P0 定稿）解析 raw → 统一 Signal
-→ 计算 dedup_key，signals 表入库（raw_payload 全量保留）
+→ capture-parser：按 signal schema（版本化，v1 = activity/rank 结构，见附录 A）解析 raw → 统一 Signal
+→ 差分器（differ）：按 `token_address` 与历史比对——
+   历史从未见过 → 新信号事件（signals 表入库，raw_payload 全量保留）
+   超过冷却窗口（可配，默认 10min）未见 → 再次触发信号事件（occurrences 累计）
+   冷却窗口内已见 → 刷新：occurrences+1、更新市值/持有人/流动性快照（写 price_points），不生成新信号
+   差分器使管道在"全量轮询"与"新信号专用接口"两种取数方式下均可工作
 → 同步评分 v1（规则引擎：基础字段 + 历史上下文：isFirstSeen/occurrencesIn(Nm)）
 → 并行触发 enabled enrichment providers（默认超时 15s，失败静默）
 → 重评分 v2（enriched.* 字段参与）
@@ -190,12 +195,12 @@ WS 收到 capture.raw
 ### 7.4 相关性标签库（CZ/何一/Binance）
 
 - `~/.debot-sidecar/tags.json`：`{ "CZ": ["CZ", "Changpeng Zhao", "cz_binance"], "HE_YI": ["何一", "Yi He"], "BINANCE": ["Binance", "币安"] }`，用户可编辑（WebUI 设置页）
-- 应用：命中信号文本/关联人物字段 → 信号 `tags` 数组；`【P0 待确认】` 若 payload 自带结构化关联人物字段则直接映射
+- 应用（P0 已确认 payload 自带 `tags[]`，已见 `binance_alpha`）：相关性优先直接映射 DeBot tags + `social_info`（twitter/description/website）关键词匹配；`binance_alpha` 即 Binance 相关的现成结构化标签；CZ/何一仍走关键词标签库
 - 仅是规则条件的输入（预置规则包随附），不是独立子系统
 
 ### 7.5 去重与历史
 
-- `dedup_key = token 合约地址 + 信号类型`【P0 待确认粒度】
+- `dedup_key = token 合约地址`（P0 已确认接口按 address 组织；新信号专用接口确认后再考虑细化粒度）
 - SQLite 存 first_seen / last_seen / 出现次数；时间窗口出现次数由管线查询历史表生成 `occurrencesInNm` 字段供规则引用
 
 ### 7.6 强通知系统（用户重点需求）
@@ -252,7 +257,7 @@ interface EnrichmentProvider {
 
 优先级：
 
-1. DeBot 自带字段：公开页面信号带 ATH 与倍数显示（如 `ATH $498K`、`18x`）；`【P0 待确认】` hook payload 是否自带 → 自带则直接用
+1. DeBot 自带字段（P0 已实证）：信号 payload 自带 `max_price_gain`（信号后最大涨幅，见附录 A）；**单位待校准**（对照页面显示的 x 倍数，收口 `MAX_PRICE_GAIN_UNIT`），校准后直接使用
 2. 第三方 K 线（DexScreener / GeckoTerminal 免费 API）：拉信号后 1h/4h/24h 窗口数据，计算"信号时刻市值 → 窗口内最高市值"倍数与回撤
 3. 无数据（死币/超低流动性）→ 标记 `data_missing`，不进统计分母
 
@@ -312,25 +317,32 @@ interface EnrichmentProvider {
 ## 9. P0 占位与事实依赖（收口：`packages/shared/src/p0.ts`）
 
 ```ts
-// 所有【P0 待确认】值集中于此，P0 定稿后只改此文件
+// 已证实事实与待确认值集中于此，实现不得编造待确认值
 export const P0 = {
-  AI_SIGNAL_URL_MATCH: "https://debot.ai/*",        // AI Signal 页面 match pattern
-  TOKEN_URL_TEMPLATE: "https://debot.ai/token/{ca}", // token 详情页模板（通知跳转）
-  SIGNAL_SCHEMA_VERSION: 0,                          // P0 定稿信号结构，升级递增
-  DEDUP_KEY_GRANULARITY: "token+signalType",        // 去重粒度
-  LOGIN_FAIL_SIGNATURES: [] as string[],            // 登录失效特征（URL/401 等）
-  L0_IS_TRUSTED_EFFECTIVE: null as boolean | null,   // L0 合成事件是否有效
+  // ── 已证实（2026-09-13 实测抓包，附录 A）──
+  AI_SIGNAL_PAGE_URL: "https://debot.ai/?chain=bsc",            // 页面地址（chain 为页面级筛选）
+  AI_SIGNAL_URL_MATCH: "https://debot.ai/*",                   // content script match pattern
+  SIGNAL_API_PREFIX: "https://debot.ai/api/community/signal/", // 轮询接口前缀（hook 白名单）
+  SIGNAL_SCHEMA_VERSION: 1,                                     // v1 = activity/rank 结构（附录 A）
+  DEDUP_KEY_GRANULARITY: "token_address",                      // 按 address 差分
+  // ── 待确认 ──
+  TOKEN_URL_TEMPLATE: "https://debot.ai/token/{ca}",  // token 详情页模板（通知跳转）
+  NEW_SIGNAL_ENDPOINT: null as string | null,         // 新信号弹出的接口（activity/rank 疑似仅刷新/排行）
+  MAX_PRICE_GAIN_UNIT: "tbc" as "x" | "pct" | "tbc",  // max_price_gain 单位
+  LOGIN_FAIL_SIGNATURES: [] as string[],              // 登录失效特征（URL/401 等）
+  L0_IS_TRUSTED_EFFECTIVE: null as boolean | null,    // L0 合成事件是否有效
 } as const;
 ```
 
-P0 抓包操作清单（需要用户提供：AI Signal 页面 URL + 登录态浏览器；产出回填上表）：
+P0 抓包操作清单（进度更新 2026-09-13）：
 
-1. DevTools Network（XHR/Fetch/WS 过滤）运行 10–15 分钟：记录信号请求 URL / method / 协议（REST 轮询/SSE/WS）/ 频率 / 响应结构
-2. 导出 HAR 或截图 payload → 整理信号字段全表（市值、流动性、持有人、Token 年龄、关联人物、ATH/倍数是否自带）
-3. 登录失效表现（URL 跳转？401？）
-4. 页面静置 30 分钟，验证活跃度检测（L0 可行性）
-5. 同 token 不同类型信号的区分方式（dedup 粒度）
-6. 从任一信号点进 token 详情页，记录 URL 规则
+1. ~~信号请求协议与响应结构~~ ✅ 已证实：REST 明文 JSON 轮询（附录 A）
+2. ~~信号字段全表~~ ✅ 已获得：见附录 A 字段映射表
+3. **待办**：新信号弹出的接口——开 Network 等下一条全新信号弹出的瞬间，记录新发起的请求（当前抓到的 activity/rank 疑似仅刷新已展示 token 行情）
+4. **待办**：登录失效表现（URL 跳转？401？）
+5. **待办**：页面静置 30 分钟验证活跃度检测（L0 可行性）
+6. **待办**：从任一信号点进 token 详情页，记录 URL 规则（通知跳转模板）
+7. **待办**：max_price_gain 单位校准：同一 token 页面显示的 x 倍数 vs 接口值对照
 
 ## 10. 数据模型（SQLite：`~/.debot-sidecar/sidecar.db`，路径可配）
 
@@ -383,9 +395,9 @@ GET    /api/notifications
 
 | # | 风险 | 应对 |
 |---|---|---|
-| 1 | AI Signal 数据协议未知/加密 | P0 定稿；hook 不到则 DOM 兜底通道为唯一通道 |
+| 1 | ~~数据协议未知~~ ✅ 已证实明文 JSON REST（附录 A） | DOM 兜底通道降为不实现 |
 | 2 | L0 isTrusted 无效 | P0 实测；无效则 L0 可选、L1 为主 |
-| 3 | 信号不带 ATH/倍数 | 走第三方 K 线（§7.9 优先级 2） |
+| 3 | ~~信号不带涨幅字段~~ ✅ 自带 max_price_gain | 单位待校准（§9 待办 7）；第三方 K 线仅作校验 |
 | 4 | DeBot 前端改版 | capture schema 版本化 + 静默告警人工介入 |
 | 5 | 上游 rate limit / 死币无数据 | 队列+缓存；data_missing 不进统计分母 |
 | 6 | 反爬风控升级 | 被动读取、不额外发请求；异常告警 |
@@ -397,3 +409,42 @@ GET    /api/notifications
 - 实现节奏：按 §8 分期，每期完成即向用户演示验收；验收通过 commit 并打 tag（`p1-mvp` 等）
 - 遇决策空白：先问用户，再实现（守则 §0.4）
 - 文档：README（启动方式：`pnpm dev:server` / `pnpm dev:extension` / `pnpm dev:web` 等）、每期交付说明
+
+---
+
+## 附录 A：DeBot 信号接口实测事实（2026-09-13，用户 DevTools 抓包）
+
+**接口样例**（AI Signal 页面实测，明文 JSON REST 轮询）：
+
+```
+GET https://debot.ai/api/community/signal/channel/activity/rank
+    ?request_id=<uuid>&chain=robinhood&limit=10&duration=5m
+```
+
+- 响应包装：`{ code, description, data: TokenEntry[] }`；`code: 0` = 成功
+- `request_id` 为请求追踪 UUID（忽略）；`chain` 为页面级链筛选（页面 URL 如 `https://debot.ai/?chain=bsc`）
+- 用户观察：此接口定时刷新页面已展示信号的市值/持有人等行情；**疑似为"刷新/活跃排行"用途，新信号弹出可能另有接口**（§9 待办 3）
+
+**TokenEntry 字段映射表（v1 schema：统一 Signal 字段 ← DeBot 来源）**：
+
+| 统一 Signal 字段 | DeBot 来源 | 备注 |
+|---|---|---|
+| token_address / symbol / name / logo / decimals / total_supply | 同名 | |
+| chain | chain | 页面链筛选 |
+| launchpad | launchpad | pons_v2 / long / "" |
+| token_created_at | creation_timestamp | Token 年龄 = now − ts |
+| price / market_cap_usd / fdv | market_info.price / mkt_cap / fdv | |
+| holders | market_info.holders | |
+| pct_5m / pct_1h / pct_24h | market_info.percent_5m / percent_1h / percent_24h | |
+| buys / sells / swaps / buy_volume / sell_volume / volume | market_info.* | |
+| uniq_wallet_swaps / uniq_wallet_swaps_1h | market_info.* | |
+| liquidity_usd | pair_summary_info.liquidity | |
+| smart_wallets_online / smart_wallets_total | smart_wallet_online_count / smart_wallet_total_count | |
+| tags | tags[] | 已实测值：binance_alpha、pons_v2、uniswapv4、long |
+| is_honeypot / is_open_source / is_ownership_abandoned / is_pool_locked / pool_lock_percent / pool_burn_percent / buy_tax / sell_tax | safe_info.goplus.* | -1 = 未知 |
+| risk_level / token_tier / activity_score / max_price_gain | 同名 | max_price_gain 单位待校准（§9） |
+| social_twitter / social_website / social_description | social_info.twitter / website / description | 关键词与相关性规则输入 |
+| dex_name / pair / quote_token_symbol / quote_token_reserve | dex.dex_name / pair / base_token.symbol / base_token.reserve | |
+| owner_address | safe_info.debot.owner_address | 部分条目存在 |
+
+**对规则引擎的意义**：市值/流动性/持有人/Token 年龄/买卖比/聪明钱包数/蜜罐与税率/DeBot tags（`binance_alpha` 即 Binance 相关）/社交描述关键词/DeBot 自评（token_tier / activity_score / risk_level）全部可直接作为规则条件；`max_price_gain` 即"信号离最高点收益"的自带数据源。

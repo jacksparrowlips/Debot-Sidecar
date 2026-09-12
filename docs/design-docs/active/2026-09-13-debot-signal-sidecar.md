@@ -50,7 +50,7 @@ Out of scope（本期不做）：
 ```
 ┌─ 浏览器（Chrome/Edge，用户日常使用）─────────────────────┐
 │  DeBot AI Signal 页面（用户正常登录操作）                  │
-│    ↑hook fetch/XHR/WS      ↑MutationObserver兜底          │
+│    ↑hook fetch/XHR（P0 实证：REST JSON 轮询）             │
 │  扩展（MV3，薄）：                                          │
 │   ├ content script + MAIN world 注入（捕获）               │
 │   ├ service worker（转发/保活/登录失效检测）               │
@@ -80,12 +80,10 @@ Out of scope（本期不做）：
 
 ### 5.1 捕获层（扩展）
 
-双通道，防御性设计：
+主通道为主、兜底仅保留设计位（P0 已定稿）：
 
-- **主通道**：MAIN world hook。重写 `window.fetch` / `XMLHttpRequest` / `WebSocket`，读取 DeBot 页面自己请求得到的结构化响应（Fetch/XHR/WS 均覆盖）。content script（isolated world）与注入脚本（MAIN world）经 `window.postMessage` 桥接
-- **兜底通道**：DOM MutationObserver 监听信号列表容器，解析渲染后的信号节点。仅当主通道拿不到数据时启用，避免与 DeBot 前端结构强耦合
-
-通道选择在 P0 抓包后定稿：主通道可用则兜底通道仅保留实现位（YAGNI：不提前实现）。
+- **主通道（P0 实证可行）**：MAIN world hook。包装 `window.fetch`（`response.clone()` 读取响应体，不消费原流）与 `XMLHttpRequest`；WebSocket 留接口暂不实现。已证实 AI Signal 页面取数为 REST 明文 JSON 轮询（`GET /api/community/signal/channel/activity/rank`，结构与字段全表见 SPEC 附录 A）。hook 后按 URL 前缀白名单 `https://debot.ai/api/community/signal/` 筛选；`request_id` 为追踪 UUID 忽略；`chain` 为页面级链筛选，存为信号属性。content script（isolated world）与注入脚本（MAIN world）经 `window.postMessage` 桥接
+- **兜底通道（P0 定稿：不实现）**：DOM MutationObserver 解析渲染后的信号节点。主通道已实证可行，仅保留设计位（YAGNI：不提前实现），避免与 DeBot 前端结构强耦合
 
 扩展不处理业务逻辑，捕获到的原始事件去重后（按请求/消息指纹）经 WS 推给本地服务。
 
@@ -127,7 +125,8 @@ Out of scope（本期不做）：
 
 ### 5.4 去重与信号历史
 
-- 信号身份 `dedup_key = token合约地址 + 信号类型`（粒度以 P0 实际结构确认）
+- 信号身份 `dedup_key = token 合约地址`（P0 已证实接口按 address 组织信号）
+- 差分器（differ）：轮询全量快照与历史按 address 比对——历史从未见过 → 新信号事件；超过冷却窗口（默认 10min，可配）未见 → 再次触发信号事件；冷却窗口内 → 刷新（occurrences+1、市值/持有人/流动性快照写 price_points，不生成新信号）。使管道兼容"全量轮询"与未来"新信号专用接口"两种取数方式
 - SQLite 记录 first_seen / last_seen；时间窗口（如 30 分钟内出现次数）由规则引擎查询历史表计算
 - 首次出现加分、重复扣分、超限 reject —— 均为普通规则条件，不单写逻辑
 
@@ -165,7 +164,7 @@ Out of scope（本期不做）：
 
 优先级：
 
-1. **DeBot 自带字段**：已核实公开页面信号带 ATH 与倍数（如 `ATH $498K`、`18x`）。若 hook 到的 payload 自带 → 直接用，零额外请求
+1. **DeBot 自带字段（P0 已实证）**：payload 自带 `max_price_gain`（信号发出后离最高点收益率），直接用、零额外请求；**单位（倍数/百分比）待对照页面 x 倍数校准**
 2. **第三方 K 线**：DexScreener / GeckoTerminal 免费 API，拉信号后 1h/4h/24h 窗口 K 线，计算"信号时刻市值 → 窗口内最高市值"倍数与回撤
 3. 拉不到数据（死币/超低流动性）→ 标记"数据缺失"，不进统计分母
 
@@ -277,23 +276,23 @@ packages/
 
 ## 8. P0 抓包清单（需用户配合，产出事实清单）
 
-前提：用户提供 AI Signal 页面 URL + 正常登录的浏览器。
+前提 ✅（2026-09-13 首轮抓包完成，事实归档 SPEC 附录 A）：页面 URL `https://debot.ai/?chain=bsc`。
 
-1. 打开 AI Signal 页面 → DevTools Network（过滤 XHR/Fetch/WS），让页面运行 10–15 分钟
-2. 记录：信号相关请求的 URL / method / 协议（REST 轮询 / SSE / WebSocket）/ 频率 / 响应结构
-3. 导出 HAR 或截图信号 payload，整理**信号字段全表**（市值、流动性、持有人、Token 年龄、关联人物、ATH/倍数是否自带）
-4. 观察登录失效表现：URL 跳转？401？token 过期行为
-5. 页面静置 30 分钟：是否有活跃度检测（验证 L0 可行性）
-6. 确认信号身份粒度：同 token 不同类型信号如何区分
-7. 确认 DeBot token 详情页 URL 格式（强通知跳转模板用）：从任一信号点进 token 页，记录 URL 规则
+1. ✅ 协议已证实：REST 明文 JSON 轮询 `GET /api/community/signal/channel/activity/rank`（`request_id` 为追踪 UUID 忽略；`chain` 为页面级链筛选，存为信号属性）
+2. ✅ 信号字段全表已整理入 SPEC 附录 A（市值/持有人/流动性/5m|1h|24h 涨跌/买卖笔数/安全风险/社交/tags/max_price_gain/token_tier 等）
+3. ⬜ 新信号弹出的接口：activity/rank 疑似仅刷新当前页信号列表（市值/持有人变化等），待页面弹出全新信号时抓 Network 新增请求
+4. ⬜ `max_price_gain` 单位校准：同一 token 页面显示的 x 倍数与接口数值对照
+5. ⬜ token 详情页 URL 格式：从任一信号点进 token 页记录 URL 规则（强通知跳转模板 `TOKEN_URL_TEMPLATE` 当前为占位值）
+6. ⬜ 登录失效表现：URL 跳转？401？（`LOGIN_FAIL_SIGNATURES` 为空）
+7. ⬜ 页面静置 30 分钟：是否有活跃度检测（验证 L0 合成事件 isTrusted 有效性）
 
 ## 9. 风险与待确认事实
 
 | # | 风险/事实缺口 | 应对 |
 |---|---|---|
-| 1 | AI Signal 数据协议未知（REST/WS/加密） | P0 抓包定稿；hook 不到则启用 DOM 兜底通道 |
+| 1 | ~~数据协议未知~~ → 已证实 REST 明文 JSON 轮询（P0 实证 2026-09-13） | fetch hook 定稿（`response.clone()`）；DOM 兜底不实现 |
 | 2 | L0 合成事件 isTrusted 风险 | P0 实测；无效则 L0 为可选、L1 为主 |
-| 3 | 信号是否自带 ATH/倍数/PnL 字段 | P0 确认；不自带走第三方 K 线 |
+| 3 | ~~是否自带 ATH/倍数~~ → 已自带 `max_price_gain`（P0 实证） | 单位（倍数/百分比）待对照页面 x 倍数校准；第三方 K 线降为校验/补充源 |
 | 4 | DeBot 前端改版导致 hook/DOM 失效 | 通道产物带 schema 版本；异常时告警 |
 | 5 | 第三方 K 线 rate limit 与死币无数据 | 队列+缓存；数据缺失不进统计分母 |
 | 6 | 反爬风控升级影响被动读取 | 被动读取浏览器自身请求，不额外发起；异常告警人工介入 |
