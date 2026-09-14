@@ -216,7 +216,7 @@ WS 收到 capture.raw
 1. **主通道：WebUI 大卡片通知窗口**
    - 服务触发通知事件 → WS 推 WebUI → WebUI 打开（或复用已打开的）**通知小窗**（`window.open`，`【可配】` 默认约 480×420、屏幕右上）
    - 卡片内容：等级色边框/背景（LOW 灰 / MEDIUM 黄 / HIGH 橙 / VERY_HIGH 红金，主题可配）、Token 符号、CA（点击复制）、等级徽标、评分、命中规则摘要（每条规则一行：ruleId + 加减分）、热度统计区块（enriched.heat-* 数据，未就绪显示"获取中/失败"）
-   - **点击卡片主体 → 打开该 CA 的 DeBot token 页**：URL 模板 `tokenUrlTemplate`（P0 已确认格式 `https://debot.ai/token/{chain}/{id}_{ca}`，见附录 A；`{id}` 前缀数字含义待用户确认，确认前收口 P0 常量 `TOKEN_URL_TEMPLATE`，实现不得编造 `{id}` 取值）
+   - **点击卡片主体 → 打开该 CA 的 DeBot token 页**：URL 模板 `tokenUrlTemplate`（P0 已定稿 `https://debot.ai/token/{chain}/246559_{ca}`，见附录 A；用户确认下划线前数字固定不变；`{chain}`/`{ca}` 取自信号属性）
    - 声音提醒：可开关，支持用户自定义音频文件与音量
 2. **兜底：系统通知**（Web Notification API / 扩展 chrome.notifications）：面积小但可穿透，可关
 3. **触发条件可配**：默认 `>= HIGH` 触发大卡片、`>= VERY_HIGH` 追加系统通知
@@ -333,9 +333,8 @@ export const P0 = {
   NEW_SIGNAL_HINT_ENDPOINT: "/api/community/signal/channel/token/kline", // 新信号弹出时最先请求的端点（先行线索；完整字段仍以 rank 差分为权威）
   MAX_PRICE_GAIN_UNIT: "pct" as "x" | "pct",                   // 数值×100=页面百分比（8.561333→856%）；"基价倍数/涨幅"语义 P1 以 kline 峰值对照定稿
   LOGIN_FAIL_MODE: "cloudflare_challenge",                     // 登录/风控失效=Cloudflare 人机验证页（需用户点击，附录 A）
+  TOKEN_URL_TEMPLATE: "https://debot.ai/token/{chain}/246559_{ca}", // token 详情页（2026-09-14 用户确认：下划线前数字固定为 246559；{chain}/{ca} 取自信号属性）
   // ── 待确认 ──
-  TOKEN_URL_TEMPLATE: "https://debot.ai/token/{chain}/{id}_{ca}", // token 详情页格式（{id} 前缀含义待用户确认，两例均为 246559）
-  TOKEN_URL_ID_SOURCE: null as string | null,                  // {id} 来源（若逐 token 不同，需确认能否从 payload/页面推导）
   LOGIN_FAIL_SIGNATURES: [] as string[],                       // CF 挑战页 DOM/标题特征（候选：title "Just a moment…"，P1 实测定稿）
   L0_IS_TRUSTED_EFFECTIVE: null as boolean | null,             // L0 合成事件是否有效（静置 30 分钟实测）
 } as const;
@@ -348,7 +347,7 @@ P0 抓包操作清单（进度更新 2026-09-14）：
 3. ~~新信号弹出的接口~~ ✅（2026-09-14）：新信号弹出时最先请求 `token/kline?...&tokens=<新CA>`（先行线索 + 价格序列回填）；完整信号字段仍以 rank 差分为权威，P1 验证 rank 是否随新信号纳入新 token
 4. ~~登录失效表现~~ ✅（2026-09-14）：被替换为 Cloudflare 人机验证页，需鼠标点击通过（L2 直接升 L3 告警，用户手动验证）
 5. **待办**：页面静置 30 分钟验证活跃度检测（L0 可行性）——唯一剩余项
-6. ~~token 详情页 URL~~ ✅ 格式（2026-09-14）：`https://debot.ai/token/{chain}/{id}_{ca}`；⬜ `{id}` 前缀数字含义待确认（已向用户提问）
+6. ~~token 详情页 URL~~ ✅ 定稿（2026-09-14）：`https://debot.ai/token/{chain}/246559_{ca}`（用户确认下划线前数字固定不变）
 7. ~~max_price_gain 单位~~ ✅（2026-09-14）：数值×100=页面百分比（8.561333→856%）；⬜ "基价倍数 vs 涨幅"语义 P1 用 kline 峰值对照一次定稿；另确认其随 rank 轮询（数秒一次）实时更新
 
 ## 10. 数据模型（SQLite：`~/.debot-sidecar/sidecar.db`，路径可配）
@@ -470,8 +469,8 @@ GET https://debot.ai/api/community/signal/channel/token/kline
 **补充实测事实（2026-09-14）**：
 
 1. **max_price_gain 单位**：数值 ×100 = 页面百分比（用户确认：8.561333 即 856%）。"基价倍数"（8.56 倍 = 价格×8.56）还是"涨幅"（+856%）的语义差异，P1 用同一 token 的 kline 峰值对照一次定稿（信号价 p0、峰值 pMax：倍数语义=pMax/p0，涨幅语义=(pMax−p0)/p0）
-2. **token 详情页 URL 格式**（通知点击跳转模板）：
+2. **token 详情页 URL 格式**（通知点击跳转模板，已定稿）：
    - Solana：`https://debot.ai/token/solana/246559_8eaTKu3hpJwaLQbsVbUjAVt1CPCvwP3PfYHP8k5Ypump`
    - BSC：`https://debot.ai/token/bsc/246559_0x113d68c8cca4fe5ba25f49c00784079d168e7777`
-   - 模式：`https://debot.ai/token/{chain}/{id}_{ca}`；`{id}` 前缀数字含义待确认（两例均为 246559，已向用户提问；确认前实现不得编造其取值或推导逻辑）
+   - 模式：`https://debot.ai/token/{chain}/246559_{ca}`（2026-09-14 用户确认：下划线前数字固定为 246559，不随 token 变化；`{chain}`/`{ca}` 直接取自信号属性）
 3. **登录/风控失效表现**：页面被替换为 **Cloudflare 人机验证页**（需鼠标点击、由 Cloudflare 综合评判机器人/真人），非 URL 跳转或 401——无法自动恢复，保活 L2 直接升级 L3 告警（§7.8），由用户手动点击通过

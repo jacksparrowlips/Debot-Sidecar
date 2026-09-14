@@ -220,7 +220,7 @@ Out of scope（本期不做）：
 - 声音提醒：可开关，支持自定义音频文件
 - 触发条件可配：默认 `grade >= HIGH` 触发大卡片，`>= VERY_HIGH` 追加系统通知
 - 通知等待 enrichment（默认超时 15s）：保证"热度统计"在通知内可见；超时则热度区块显示"获取中/失败"
-- 跳转 URL 模板可配：P0 已确认格式 `https://debot.ai/token/{chain}/{id}_{ca}`（SPEC 附录 A）；`{id}` 前缀数字含义待用户确认，确认前以 P0 常量占位、不编造推导逻辑
+- 跳转 URL 模板可配：P0 已定稿 `https://debot.ai/token/{chain}/246559_{ca}`（SPEC 附录 A；用户确认下划线前数字固定不变）
 - WebUI 通知中心：历史通知列表，防漏看
 
 ### 5.12 数据增强层（enrichment providers，2026-09-13 补充）
@@ -284,7 +284,7 @@ packages/
 2. ✅ 信号字段全表已整理入 SPEC 附录 A（市值/持有人/流动性/5m|1h|24h 涨跌/买卖笔数/安全风险/社交/tags/max_price_gain/token_tier 等）
 3. ✅（2026-09-14）新信号弹出接口：最先请求 `token/kline?...&tokens=<新CA>`（先行线索 + 5s 间隔价格序列回填）；完整字段仍以 rank 差分为权威，P1 验证 rank 是否随新信号纳入新 token
 4. ✅（2026-09-14）`max_price_gain` 单位：数值×100=页面百分比（8.561333→856%）；"倍数/涨幅"语义 P1 用 kline 峰值对照定稿
-5. ✅（2026-09-14）token 详情页 URL 格式：`https://debot.ai/token/{chain}/{id}_{ca}`；⬜ `{id}` 前缀数字含义待确认（已向用户提问）
+5. ✅（2026-09-14）token 详情页 URL 定稿：`https://debot.ai/token/{chain}/246559_{ca}`（用户确认下划线前数字固定不变）
 6. ✅（2026-09-14）登录失效表现：被替换为 Cloudflare 人机验证页（需鼠标点击）→ L2 直接升 L3 告警
 7. ⬜ 页面静置 30 分钟：是否有活跃度检测（验证 L0 合成事件 isTrusted 有效性）——唯一剩余项
 
