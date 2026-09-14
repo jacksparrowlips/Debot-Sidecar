@@ -2,6 +2,8 @@ import { defineConfig } from "wxt";
 
 // MV3 扩展（薄捕获层，SPEC §4：薄扩展、胖服务）
 export default defineConfig({
+  // 不用默认 .output/（macOS 文件选择器隐藏点开头目录，Edge 加载时找不到）
+  outDir: "extension-build",
   manifest: {
     name: "DeBot Signal Sidecar",
     version: "0.1.0",

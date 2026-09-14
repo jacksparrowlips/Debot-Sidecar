@@ -46,8 +46,10 @@ pnpm dev:extension    # WXT watch 模式
 ## 加载浏览器扩展（一次性）
 
 1. `pnpm build:extension`
-2. Chrome 打开 `chrome://extensions` → 开启「开发者模式」→ 「加载已解压的扩展程序」
-3. 选择目录 `apps/extension/.output/chrome-mv3`
+2. 浏览器打开扩展管理页并开启「开发者模式」：
+   - Chrome：`chrome://extensions`
+   - Edge：`edge://extensions`（左下角「开发人员模式」）
+3. 「加载解压缩的扩展」→ 选择目录 `apps/extension/extension-build/chrome-mv3`
 4. 打开 https://debot.ai 并登录（登录态保持在页面，Sidecar 不读取、不存储凭证）
 5. 点击工具栏扩展图标打开 Side Panel，确认 WS 已连接（绿色 badge）；默认服务地址 `http://127.0.0.1:8787`，可在 Side Panel 底部修改并保存
 
@@ -57,7 +59,7 @@ pnpm dev:extension    # WXT watch 模式
 pnpm typecheck       # 全仓 tsc --noEmit
 pnpm test            # rules-engine + simulator-core 单测（纯函数包）
 pnpm build:web       # WebUI 产物（apps/web/dist）
-pnpm build:extension # 扩展产物（apps/extension/.output/chrome-mv3）
+pnpm build:extension # 扩展产物（apps/extension/extension-build/chrome-mv3）
 pnpm build           # web + extension 全部构建
 ```
 
