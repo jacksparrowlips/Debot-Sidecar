@@ -185,9 +185,9 @@ export default function SignalDetail(): JSX.Element {
                   <Descriptions.Item label="入场价">{fmtNum(detail.trade.entry_price, 10)}</Descriptions.Item>
                   <Descriptions.Item label="出场">{detail.trade.exit_at === null ? "持仓中" : fmtTime(detail.trade.exit_at)}</Descriptions.Item>
                   <Descriptions.Item label="出场价">{fmtNum(detail.trade.exit_price, 10)}</Descriptions.Item>
-                  <Descriptions.Item label="PnL（SOL）">
-                    <span style={{ color: detail.trade.pnl_sol >= 0 ? "#52c41a" : "#ff4d4f", fontWeight: 700 }}>
-                      {detail.trade.pnl_sol.toFixed(4)}
+                  <Descriptions.Item label="PnL（USDT）">
+                    <span style={{ color: detail.trade.pnl_usdt === null || detail.trade.pnl_usdt >= 0 ? "#52c41a" : "#ff4d4f", fontWeight: 700 }}>
+                      {detail.trade.pnl_usdt === null ? "历史原生币价格缺失" : detail.trade.pnl_usdt.toFixed(4)}
                     </span>
                   </Descriptions.Item>
                   <Descriptions.Item label="卖出明细">

@@ -5,3 +5,6 @@ export * from "./contracts.js";
 export * from "./parse.js";
 export * from "./relevance.js";
 export * from "./defaults.js";
+export * from "./capture-monitor.js";
+export * from "./live-market.js";
+export * from "./page-health.js";

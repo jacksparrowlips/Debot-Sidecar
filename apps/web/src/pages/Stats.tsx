@@ -64,8 +64,8 @@ export default function Stats(): JSX.Element {
           { title: "模拟数", dataIndex: "simulatedCount", width: 90 },
           { title: "模拟胜率", dataIndex: "winRate", width: 100, render: (v: number | null) => (v === null ? "—" : `${(v * 100).toFixed(1)}%`) },
           {
-            title: "期望 PnL（SOL）",
-            dataIndex: "expectedPnlSol",
+            title: "期望 PnL（USDT）",
+            dataIndex: "expectedPnlUsdt",
             width: 130,
             render: (v: number | null) => (
               <span style={{ color: v === null ? undefined : v >= 0 ? "#52c41a" : "#ff4d4f", fontWeight: 600 }}>
@@ -73,11 +73,11 @@ export default function Stats(): JSX.Element {
               </span>
             ),
           },
-          { title: "最大回撤（SOL）", dataIndex: "maxDrawdownSol", width: 130, render: (v: number | null) => (v === null ? "—" : fmtNum(v, 4)) },
+          { title: "最大回撤（USDT）", dataIndex: "maxDrawdownUsdt", width: 130, render: (v: number | null) => (v === null ? "—" : fmtNum(v, 4)) },
         ]}
       />
       <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginTop: 12 }}>
-        峰值涨幅取信号后价格序列最高点（rank/kline/DexScreener 合并序列）；模拟胜率/期望 PnL 由策略模板回放（成本模型：双边滑点+手续费）
+        峰值涨幅取信号后价格序列最高点（rank/kline/DexScreener 合并序列）；模拟 PnL 按入场时对应链原生币 USD 价格换算为 USDT（成本模型：双边滑点+手续费）
       </Typography.Paragraph>
     </div>
   );

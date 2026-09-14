@@ -35,6 +35,10 @@ import {
   saveStrategyVersion,
 } from "../store/misc.js";
 
+import { captureSnapshot, captureDetail } from "../pipeline/captureMonitor.js";
+import { listSignalCards } from "../store/cards.js";
+import { extConnectionCount } from "./ws.js";
+
 const here = path.dirname(fileURLToPath(import.meta.url));
 
 function rowToSummary(
@@ -49,6 +53,12 @@ function rowToSummary(
 }
 
 export function registerRest(app: FastifyInstance): void {
+  app.get("/api/signal-cards", () => listSignalCards(getCtx().db, getCtx().config.tokenUrlTemplate));
+  app.get("/api/captures", () => captureSnapshot(extConnectionCount()));
+  app.get<{ Params: { id: string } }>("/api/captures/:id", (req, reply) => {
+    const record = captureDetail(Number(req.params.id));
+    return record ?? reply.code(404).send({ error: "记录已过期或不存在" });
+  });
   // ───────────── 信号 ─────────────
   app.get("/api/signals", (req) => {
     const q = req.query as Record<string, string | undefined>;

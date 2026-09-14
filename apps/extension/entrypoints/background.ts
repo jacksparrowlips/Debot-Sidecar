@@ -6,11 +6,13 @@
 // - 配置：启动时拉取 /api/config 的 keepalive 段，每小时刷新
 
 import { browser } from "wxt/browser";
-import { DEFAULT_SERVER_PORT, WS_PATH_EXT, type ServerBroadcastMsg } from "@debot/shared";
+import { DEFAULT_SERVER_PORT, WS_PATH_EXT, mayReloadPage, type ServerBroadcastMsg } from "@debot/shared";
 
 interface CaptureHookPayload {
+  kind?: "http" | "ws";
   url: string;
   capturedAt: number;
+  observedAt?: number;
   data: unknown;
 }
 
@@ -35,6 +37,35 @@ let debotTabId: number | null = null;
 const seenFingerprints = new Set<string>();
 /** notificationId → 点击跳转 URL */
 const clickUrls = new Map<string, string>();
+interface PageState { expired: boolean; healthAt: number; captureAt: number; attempted: boolean }
+let pages: Record<string, PageState> = {};
+const restorePages = browser.storage.session.get("pageHealth").then(st => { pages = (st.pageHealth as Record<string, PageState> | undefined) ?? {}; });
+const savePages = () => browser.storage.session.set({ pageHealth: pages });
+function publishHealth(): void {
+  broadcastToPages({ type: "page-health", expired: Object.values(pages).some(p => p.expired) });
+}
+async function reportHealth(tabId: number, expired: boolean, url: string): Promise<void> {
+  await restorePages;
+  const previous = pages[tabId];
+  const page = pages[tabId] = { expired, healthAt: Date.now(), captureAt: previous?.captureAt ?? 0, attempted: previous?.attempted ?? false };
+  await savePages();
+  publishHealth();
+  sendToServer({ type: "tab.health", tabId, url, loginState: expired ? "expired" : "ok", signalSilenceMs: page.captureAt ? Date.now() - page.captureAt : 0 });
+  if (expired && !previous?.expired) {
+    const options = {
+      type: "basic" as const, iconUrl: browser.runtime.getURL("/icon/128.png"),
+      title: "DeBot 需要人机验证 · 采集已中断",
+      message: "自动刷新已停止。点击此通知返回原标签页，手动完成 Cloudflare 验证。",
+      priority: 2, requireInteraction: true,
+    };
+    await browser.notifications.create(`debot-challenge-${tabId}`, options).catch(() => {});
+  } else if (!expired && previous?.expired) {
+    await browser.notifications.clear(`debot-challenge-${tabId}`);
+  }
+}
+browser.tabs.onRemoved.addListener(tabId => {
+  void restorePages.then(async () => { delete pages[tabId]; await savePages(); publishHealth(); });
+});
 
 // ─────────────────────────── WS 客户端 ───────────────────────────
 
@@ -57,6 +88,9 @@ function connectWs(): void {
   wsWanted = true;
   sock.onopen = () => {
     void refreshConfig();
+    void restorePages.then(() => {
+      for (const [tabId, page] of Object.entries(pages)) sendToServer({ type: "tab.health", tabId: Number(tabId), url: "https://debot.ai/", loginState: page.expired ? "expired" : "unknown", signalSilenceMs: page.captureAt ? Date.now() - page.captureAt : 0 });
+    });
     broadcastToPages({ type: "ws-status", connected: true });
   };
   sock.onmessage = (ev) => {
@@ -121,6 +155,13 @@ function broadcastToPages(payload: unknown): void {
 }
 
 browser.notifications.onClicked.addListener((notifId) => {
+  if (notifId.startsWith("debot-challenge-")) {
+    const tabId = Number(notifId.slice("debot-challenge-".length));
+    void browser.tabs.update(tabId, { active: true }).then(tab => {
+      if (tab.windowId !== undefined) return browser.windows.update(tab.windowId, { focused: true });
+    }).catch(() => {});
+    return;
+  }
   const url = clickUrls.get(notifId);
   clickUrls.delete(notifId);
   if (url !== undefined) void browser.tabs.create({ url });
@@ -135,9 +176,19 @@ browser.runtime.onMessage.addListener((msg: unknown, sender: { tab?: { id?: numb
       const p = m.payload;
       if (p === undefined || typeof p.url !== "string" || p.data === undefined) return;
       lastCaptureAt = Date.now();
+      if (sender.tab?.id !== undefined) {
+        const id = sender.tab.id;
+        void restorePages.then(async () => {
+          const page = pages[id];
+          if (page) { page.captureAt = Date.now(); page.attempted = false; await savePages(); }
+        });
+      }
       void browser.storage.local.set({ lastCaptureAt });
       const finger = `${p.url}|${JSON.stringify(p.data)}`;
-      if (seenFingerprints.has(finger)) return; // 同响应体已转发
+      if (p.kind !== "ws" && seenFingerprints.has(finger)) {
+        sendToServer({ type: "capture.duplicate", url: p.url, capturedAt: p.capturedAt, observedAt: p.observedAt });
+        return;
+      } // 同响应体仅上报诊断元数据，不重复处理
       seenFingerprints.add(finger);
       if (seenFingerprints.size > 512) {
         const first = seenFingerprints.values().next().value;
@@ -149,22 +200,14 @@ browser.runtime.onMessage.addListener((msg: unknown, sender: { tab?: { id?: numb
         source: "hook",
         url: p.url,
         capturedAt: p.capturedAt,
-        kind: "http",
+        observedAt: p.observedAt,
+        kind: p.kind === "ws" ? "ws" : "http",
         data: p.data,
       });
       return;
     }
     case "health": {
-      // 心跳/登录态：汇总静默时长后转发服务（服务侧做 L2/L3 告警判定）
-      const tabId = sender.tab?.id ?? debotTabId ?? -1;
-      const silenceMs = Math.max(0, Date.now() - lastCaptureAt);
-      sendToServer({
-        type: "tab.health",
-        tabId,
-        url: sender.tab?.url ?? "",
-        signalSilenceMs: silenceMs,
-        loginState: m.loginState === "expired" ? "expired" : m.loginState === "unknown" ? "unknown" : "ok",
-      });
+      if (sender.tab?.id !== undefined && m.loginState !== "unknown") void reportHealth(sender.tab.id, m.loginState === "expired", sender.tab.url ?? "");
       return;
     }
     case "get-keepalive": {
@@ -174,7 +217,7 @@ browser.runtime.onMessage.addListener((msg: unknown, sender: { tab?: { id?: numb
     }
     case "get-ws-status": {
       // Side Panel 打开时拉取当前连接快照（打开前 SW 已连接的场合没有新广播）
-      return Promise.resolve({ connected: ws !== null && ws.readyState === WebSocket.OPEN });
+      return restorePages.then(() => ({ connected: ws !== null && ws.readyState === WebSocket.OPEN, expired: Object.values(pages).some(p => p.expired) }));
     }
     case "set-server": {
       // Side Panel 修改 Sidecar 地址：立即重连
@@ -212,29 +255,17 @@ browser.alarms.onAlarm.addListener((alarm) => {
 async function onKeepaliveTick(): Promise<void> {
   // WS 断开兜底重连（SW 被回收后 alarm 唤醒执行到此处）
   connectWs();
-  if (!keepalive.l1 || lastCaptureAt === 0) return;
-  const silenceMs = Date.now() - lastCaptureAt;
-  const threshold = keepalive.l1SilenceMin * 60_000;
-  if (silenceMs > threshold) {
-    // L1：静默超时自动刷新 DeBot 标签页（用户可能长期未看页面，§7.8）
-    const tabs = await browser.tabs.query({ url: "https://debot.ai/*" });
-    for (const tab of tabs) {
-      if (tab.id !== undefined) {
-        await browser.tabs.reload(tab.id).catch(() => {});
-      }
-    }
-    if (silenceMs > threshold * 2) {
-      // L3：reload 仍未恢复 → 本地系统通知（服务端 tab.health 同步广播 WebUI alert）
-      void browser.notifications
-        .create(`debot-alert-${Date.now()}`, {
-          type: "basic",
-          iconUrl: browser.runtime.getURL("/icon/128.png"),
-          title: "DeBot Sidecar：捕获静默超时",
-          message: `已静默 ${Math.round(silenceMs / 60_000)} 分钟，L1 自动刷新未恢复——请检查 DeBot 标签页`,
-          priority: 2,
-        })
-        .catch(() => {});
-    }
+  await restorePages;
+  if (!keepalive.l1) return;
+  const tabs = await browser.tabs.query({ url: "https://debot.ai/*" });
+  for (const tab of tabs) {
+    if (tab.id === undefined) continue;
+    const page = pages[tab.id];
+    if (!page || !mayReloadPage({ ...page, active: tab.active, discarded: tab.discarded ?? false }, Date.now(), keepalive.l1SilenceMin * 60_000)) continue;
+    // One recovery attempt per silence episode, persisted across worker restarts.
+    page.attempted = true;
+    await savePages();
+    await browser.tabs.reload(tab.id).catch(() => {});
   }
 }
 

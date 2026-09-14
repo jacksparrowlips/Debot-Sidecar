@@ -76,9 +76,9 @@ export function runReplay(from: number, to: number, ruleVersion?: number): Repla
     grades[result.grade] = (grades[result.grade] ?? 0) + 1;
     scoreSum += result.score;
     const trade = trades.get(row.id);
-    if (trade !== undefined && (trade.status === "closed" || trade.status === "open")) {
+    if (trade !== undefined && trade.pnl_usdt !== null && (trade.status === "closed" || trade.status === "open")) {
       closedN++;
-      if (trade.pnl_sol > 0) winN++;
+      if (trade.pnl_usdt > 0) winN++;
     }
     items.push({
       signalId: row.id,

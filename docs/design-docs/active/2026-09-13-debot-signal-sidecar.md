@@ -179,8 +179,8 @@ Out of scope（本期不做）：
 ```json
 {
   "strategyVersion": 1,
-  "initialCapitalSol": 10,
-  "entry": { "delaySec": 10, "amountSol": 0.5 },
+  "initialCapitalNative": 10,
+  "entry": { "delaySec": 10, "amountNative": 0.5 },
   "exit": [
     { "trigger": { "pnlPct": 50 },  "sellPct": 50 },
     { "trigger": { "pnlPct": -30 }, "sellPct": 100 },

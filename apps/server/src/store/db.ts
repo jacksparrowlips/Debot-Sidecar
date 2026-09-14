@@ -110,6 +110,19 @@ const MIGRATIONS: string[] = [
     payload TEXT NOT NULL
   );
   `,
+  // v2：跨链模拟统一按入场时原生币 USD 价格折算，旧 pnl_sol 保留用于兼容历史数据。
+  `
+  ALTER TABLE simulated_trades ADD COLUMN pnl_usdt REAL;
+  ALTER TABLE simulated_trades ADD COLUMN entry_native_price_usd REAL;
+
+  CREATE TABLE native_asset_prices (
+    chain TEXT NOT NULL,
+    ts INTEGER NOT NULL,
+    price_usd REAL NOT NULL,
+    PRIMARY KEY(chain, ts)
+  );
+  CREATE INDEX idx_native_price_chain_ts ON native_asset_prices(chain, ts);
+  `,
 ];
 
 export function openDb(dbFile: string): DB {

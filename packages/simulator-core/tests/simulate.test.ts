@@ -7,8 +7,8 @@ const MIN = 60_000;
 function strategy(overrides: Partial<Strategy> = {}): Strategy {
   return {
     strategyVersion: 1,
-    initialCapitalSol: 10,
-    entry: { delaySec: 10, amountSol: 0.5 },
+    initialCapitalNative: 10,
+    entry: { delaySec: 10, amountNative: 0.5 },
     exit: [
       { trigger: { pnlPct: 50 }, sellPct: 50 },
       { trigger: { pnlPct: -30 }, sellPct: 100 },
@@ -48,7 +48,7 @@ describe("simulateTrade", () => {
     // 第二批卖出：止损（相对入场净 -50% <= -30%）
     expect(r.details[1]?.reason).toBe("pnlPct:-30");
     // 0 成本：一半本金 +50%、另一半 -50% → 总盈亏 = 0
-    expect(r.pnlSol).toBeCloseTo(0, 8);
+    expect(r.pnlNative).toBeCloseTo(0, 8);
   });
 
   it("超时清仓：holdHours 触发全卖", () => {
@@ -59,7 +59,7 @@ describe("simulateTrade", () => {
     const r = simulateTrade({ signalId: 1, strategy: strategy(), signalTime: t0, priceSeries: series });
     expect(r.status).toBe("closed");
     expect(r.details[0]?.reason).toBe("holdHours:24");
-    expect(r.pnlSol).toBeCloseTo(0.05, 8); // 0.5 SOL × 10%
+    expect(r.pnlNative).toBeCloseTo(0.05, 8); // 0.5 原生币 × 10%
   });
 
   it("数据枯竭仍持仓 → open，浮动 PnL 按最后价标记", () => {
@@ -70,7 +70,7 @@ describe("simulateTrade", () => {
     const r = simulateTrade({ signalId: 1, strategy: strategy(), signalTime: t0, priceSeries: series });
     expect(r.status).toBe("open");
     expect(r.exitAt).toBeNull();
-    expect(r.pnlSol).toBeCloseTo(0.2, 8); // 0.5 × 40%
+    expect(r.pnlNative).toBeCloseTo(0.2, 8); // 0.5 × 40%
   });
 
   it("成本：滑点+手续费压低净收益", () => {
@@ -90,10 +90,10 @@ describe("simulateTrade", () => {
       signalTime: t0,
       priceSeries: series,
     });
-    expect(noCost.pnlSol).toBeCloseTo(0, 8);
+    expect(noCost.pnlNative).toBeCloseTo(0, 8);
     // 5% 滑点双边 + 1% 手续费双边：净比例 = 0.99^2 × 0.95/(1.05) ≈ 0.8878 → 亏
     // 序列仅 2 小时且价格不变：无规则命中（-11.2% 未达 -30% 止损），持仓 open、details 为空
-    expect(withCost.pnlSol).toBeLessThan(0);
+    expect(withCost.pnlNative).toBeLessThan(0);
     expect(withCost.status).toBe("open");
     expect(withCost.details).toHaveLength(0);
   });
@@ -106,6 +106,6 @@ describe("simulateTrade", () => {
     ];
     const r = simulateTrade({ signalId: 1, strategy: strategy(), signalTime: t0, priceSeries: series });
     expect(r.entryPrice).toBe(2);
-    expect(r.pnlSol).toBeCloseTo(0.15, 8); // 0.5 × +30%
+    expect(r.pnlNative).toBeCloseTo(0.15, 8); // 0.5 × +30%
   });
 });

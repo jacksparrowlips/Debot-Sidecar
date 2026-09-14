@@ -1,3 +1,4 @@
+import { publicMarketUpdates } from "@debot/shared";
 // MAIN world 注入（SPEC §7.1）：hook fetch / XHR，response.clone() 读响应体不消费原流，
 // 页面逻辑零感知；仅上报 debot.ai/api/*（服务端再按 signal/ 前缀与未知端点分类）。
 // 发现 SSE/WS 接口时在此一并包装（当前 P0 实证为 REST 明文 JSON 轮询）。
@@ -6,7 +7,9 @@ const BRIDGE_SOURCE = "debot-sidecar-hook";
 
 interface HookPayload {
   url: string;
+  kind?: "http" | "ws";
   capturedAt: number;
+  observedAt?: number;
   data: unknown;
 }
 
@@ -20,10 +23,28 @@ function isDebotApi(rawUrl: unknown): boolean {
 }
 
 function post(payload: HookPayload): void {
-  window.postMessage({ source: BRIDGE_SOURCE, payload }, window.location.origin);
+  window.postMessage({ source: BRIDGE_SOURCE, payload: { ...payload, observedAt: Date.now() } }, window.location.origin);
 }
 
 export default defineUnlistedScript(() => {
+  // Observe the page's existing SharedWorker connection without changing subscriptions.
+  if (typeof window.SharedWorker === "function") {
+    window.SharedWorker = new Proxy(window.SharedWorker, {
+      construct(Target, args) {
+        const worker = Reflect.construct(Target, args) as SharedWorker;
+        try {
+          const url = new URL(String(args[0]), location.href);
+          if (url.origin === location.origin && /\/sharedSocketWorker-[^/]+\.js$/.test(url.pathname)) {
+            worker.port.addEventListener("message", event => {
+              const data = publicMarketUpdates(event.data);
+              if (data.length) post({ url: "https://debot.ai/api/sidecar/live-market", kind: "ws", capturedAt: Date.now(), data });
+            });
+          }
+        } catch { /* Observation must never interfere with the page. */ }
+        return worker;
+      },
+    });
+  }
   // ── fetch hook ──
   const origFetch = window.fetch;
   window.fetch = function hookedFetch(...args: Parameters<typeof fetch>) {

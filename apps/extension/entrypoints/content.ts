@@ -5,7 +5,7 @@
 // 4) 心跳上报（供 SW 汇总 tab.health）
 
 import { browser } from "wxt/browser";
-import { P0 } from "@debot/shared";
+import { P0, isChallengePage } from "@debot/shared";
 
 const BRIDGE_SOURCE = "debot-sidecar-hook";
 
@@ -13,7 +13,7 @@ export default defineContentScript({
   matches: [P0.AI_SIGNAL_URL_MATCH],
   runAt: "document_start", // hook 必须先于页面首个请求注入
   main() {
-    injectHookScript();
+    try { injectHookScript(); } catch { /* Health detection must also work on challenge pages. */ }
     window.addEventListener("message", (ev) => {
       if (ev.source !== window) return;
       const data = ev.data as { source?: unknown; payload?: unknown } | null;
@@ -25,7 +25,8 @@ export default defineContentScript({
     let lastExpired: boolean | null = null;
     const checkLogin = (): void => {
       const title = document.title ?? "";
-      const expired = P0.LOGIN_FAIL_SIGNATURES.some((s) => title.includes(s));
+      const expired = isChallengePage(title, document.body?.innerText.slice(0, 8000) ?? "", document.querySelector('#challenge-running, #challenge-stage, form#challenge-form, iframe[src*="challenges.cloudflare.com"]') !== null);
+      if (document.readyState === "loading" && !expired) return;
       if (expired !== lastExpired) {
         lastExpired = expired;
         void browser.runtime
@@ -35,11 +36,13 @@ export default defineContentScript({
     };
     setInterval(checkLogin, 5_000);
     checkLogin();
+    document.addEventListener("DOMContentLoaded", checkLogin);
+    document.addEventListener("visibilitychange", checkLogin);
 
     // ── 心跳：SW 汇总静默时长与登录态转发服务（§7.8）──
     setInterval(() => {
       void browser.runtime
-        .sendMessage({ type: "health", loginState: lastExpired === true ? "expired" : "ok" })
+        .sendMessage({ type: "health", loginState: lastExpired === true ? "expired" : lastExpired === false ? "ok" : "unknown" })
         .catch(() => {});
     }, 30_000);
 

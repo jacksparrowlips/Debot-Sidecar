@@ -80,7 +80,19 @@ export function saveTags(paths: SidecarPaths, tags: TagLibrary): void {
 }
 
 export function loadStrategy(paths: SidecarPaths): Strategy {
-  return readJson<Strategy>(paths.strategyFile) ?? structuredClone(DEFAULT_STRATEGY);
+  const raw = readJson<Strategy & { initialCapitalSol?: number; entry?: { amountSol?: number } }>(paths.strategyFile);
+  if (raw === null) return structuredClone(DEFAULT_STRATEGY);
+  // 兼容已保存的 SOL 命名配置：数值实际始终表示当前信号链的原生币数量。
+  return {
+    ...structuredClone(DEFAULT_STRATEGY),
+    ...raw,
+    initialCapitalNative: raw.initialCapitalNative ?? raw.initialCapitalSol ?? DEFAULT_STRATEGY.initialCapitalNative,
+    entry: {
+      ...DEFAULT_STRATEGY.entry,
+      ...raw.entry,
+      amountNative: raw.entry?.amountNative ?? raw.entry?.amountSol ?? DEFAULT_STRATEGY.entry.amountNative,
+    },
+  };
 }
 
 /** 保存策略（版本化，与规则版本分开，SPEC §7.10） */

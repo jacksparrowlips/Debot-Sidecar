@@ -24,6 +24,15 @@ const $saveServer = document.querySelector<HTMLButtonElement>("#save-server")!;
 
 let serverBase = "http://127.0.0.1:8787";
 let items: SigItem[] = [];
+let connected = false;
+let expired = false;
+function renderHealth(): void {
+  $badge.textContent = expired ? "需人机验证" : connected ? "本地已连接" : "本地未连接";
+  $badge.className = `badge ${connected && !expired ? "on" : "off"}`;
+  if (expired) { $alert.textContent = "DeBot 采集已中断，请回到原标签页手动完成人机验证。自动刷新已停止。"; $alert.className = "alert error"; }
+  else if ($alert.textContent?.includes("人机验证")) { $alert.textContent = ""; $alert.className = "alert"; }
+}
+const monitor = document.querySelector<HTMLAnchorElement>("#capture-monitor")!;
 
 // ─────────────────────────── 渲染 ───────────────────────────
 
@@ -102,12 +111,13 @@ browser.runtime.onMessage.addListener((msg: unknown) => {
   const m = msg as
     | { type: "ws-broadcast"; msg: ServerBroadcastMsg }
     | { type: "ws-status"; connected: boolean }
+    | { type: "page-health"; expired: boolean }
     | { type: "keepalive-config" }
     | undefined;
   if (m === undefined) return;
+  if (m.type === "page-health") { expired = m.expired; renderHealth(); return; }
   if (m.type === "ws-status") {
-    $badge.textContent = m.connected ? "已连接" : "未连接";
-    $badge.className = `badge ${m.connected ? "on" : "off"}`;
+    connected = m.connected; renderHealth();
     return;
   }
   if (m.type !== "ws-broadcast") return;
@@ -156,13 +166,13 @@ void (async () => {
   } else {
     $serverUrl.value = serverBase;
   }
+  monitor.href = `${serverBase}/captures`;
   // 询问 SW 当前 WS 连接状态（打开前 SW 已连接的场合没有新广播，需拉快照）
   try {
     const r = (await browser.runtime.sendMessage({ type: "get-ws-status" })) as
-      | { connected: boolean }
+      | { connected: boolean; expired: boolean }
       | undefined;
-    $badge.textContent = r?.connected ? "已连接" : "未连接";
-    $badge.className = `badge ${r?.connected ? "on" : "off"}`;
+    connected = r?.connected ?? false; expired = r?.expired ?? false; renderHealth();
   } catch {
     // SW 未就绪：保持初始渲染
   }
@@ -173,6 +183,7 @@ $saveServer.addEventListener("click", () => {
   const v = $serverUrl.value.trim().replace(/\/+$/, "");
   if (v.length === 0) return;
   serverBase = v;
+  monitor.href = `${serverBase}/captures`;
   void browser.storage.local.set({ serverBase: v });
   void browser.runtime.sendMessage({ type: "set-server", serverBase: v }).catch(() => {});
 });

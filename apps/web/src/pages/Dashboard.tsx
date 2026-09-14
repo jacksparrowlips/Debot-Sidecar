@@ -1,98 +1,106 @@
-// 实时流（SPEC §7.4）：WS 推送插入/更新 + 等级筛选
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Table, Tag, Typography } from "antd";
-import type { SignalSummary, ServerBroadcastMsg } from "@debot/shared";
-import { subscribe } from "../ws";
+import { Alert, Button, Empty, Input, Space, Spin, Tag, Typography } from "antd";
+import type { SignalCard } from "@debot/shared";
 import { get } from "../api";
-import { GRADES, GradeTag, fmtNum, fmtPct, fmtTime, fmtUsd } from "../grades";
+import { GRADES, GradeTag, fmtNum, fmtTime, fmtUsd } from "../grades";
+import "./signal-cards.css";
 
-export default function Dashboard(): JSX.Element {
-  const [rows, setRows] = useState<SignalSummary[]>([]);
-  const [gradeFilter, setGradeFilter] = useState<string>("all");
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    void get<import("@debot/shared").SignalsPage>("/api/signals?pageSize=50")
-      .then((p) => setRows(p.items))
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
-
-  useEffect(
-    () =>
-      subscribe((msg: ServerBroadcastMsg) => {
-        if (msg.type === "signal.scored") {
-          setRows((prev) => [msg.signal, ...prev.filter((r) => r.id !== msg.signal.id)].slice(0, 200));
-        } else if (msg.type === "grade.updated" || msg.type === "notification") {
-          setRows((prev) => prev.map((r) => (r.id === msg.signal.id ? msg.signal : r)));
-        }
-      }),
-    [],
-  );
-
-  const filtered = useMemo(
-    () => (gradeFilter === "all" ? rows : rows.filter((r) => r.grade === gradeFilter)),
-    [rows, gradeFilter],
-  );
-
-  const columns = [
-    { title: "时间", dataIndex: "captured_at", width: 90, render: (v: number) => <Typography.Text type="secondary" style={{ fontSize: 12 }}>{fmtTime(v).slice(5)}</Typography.Text> },
-    { title: "等级", dataIndex: "grade", width: 100, render: (g: string) => <GradeTag grade={g} /> },
-    {
-      title: "Token",
-      dataIndex: "symbol",
-      width: 130,
-      render: (_: unknown, r: SignalSummary) => (
-        <span>
-          <Link to={`/signals/${r.id}`}>{r.symbol}</Link>
-          {r.signal_type === "resurface" ? <Tag style={{ marginLeft: 6 }}>重出</Tag> : null}
-        </span>
-      ),
-    },
-    { title: "链", dataIndex: "chain", width: 70 },
-    { title: "分数", dataIndex: "score", width: 70, render: (v: number) => <b>{v}</b> },
-    { title: "市值", dataIndex: "market_cap_usd", width: 90, render: fmtUsd },
-    { title: "流动性", dataIndex: "liquidity_usd", width: 90, render: fmtUsd },
-    { title: "24h 涨幅", dataIndex: "pct_24h", width: 90, render: fmtPct },
-    { title: "峰值涨幅", dataIndex: "max_price_gain", width: 90, render: (v: number | null) => fmtPct(v === null ? null : v * 100) },
-    {
-      title: "标签",
-      dataIndex: "relevance_tags",
-      render: (tags: string[]) => (
-        <>
-          {tags.map((t) => (
-            <Tag key={t} color="blue">{t}</Tag>
-          ))}
-        </>
-      ),
-    },
-  ];
-
-  return (
-    <div>
-      <div style={{ marginBottom: 12, display: "flex", gap: 8, flexWrap: "wrap" }}>
-        <Tag.CheckableTag checked={gradeFilter === "all"} onChange={() => setGradeFilter("all")}>
-          全部
-        </Tag.CheckableTag>
-        {GRADES.map((g) => (
-          <Tag.CheckableTag key={g} checked={gradeFilter === g} onChange={() => setGradeFilter(g)}>
-            {g}
-          </Tag.CheckableTag>
-        ))}
-        <Typography.Text type="secondary" style={{ marginLeft: "auto", fontSize: 12 }}>
-          实时推送（新信号置顶）；{fmtNum(filtered.length, 0)} 条
-        </Typography.Text>
+const price = (v: number | null) => v === null ? "—" : `$${v.toLocaleString("en-US", { maximumSignificantDigits: 5 })}`;
+const elapsed = (timestamp: number, now: number) => {
+  const seconds = Math.max(0, Math.floor((now - timestamp) / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`;
+  return `${Math.floor(seconds / 86400)}d`;
+};
+function Metric({ label, from, to, format = fmtUsd }: { label: string; from: number | null; to: number | null; format?: (v: number | null) => string }): JSX.Element {
+  const delta = from === null || to === null ? 0 : to - from;
+  return <div className="signal-metric"><span>{label}</span><span>{format(from)}</span><span className="signal-arrow">→</span><strong className={delta > 0 ? "rise" : delta < 0 ? "fall" : ""}>{format(to)} {delta > 0 ? "↑" : delta < 0 ? "↓" : ""}</strong></div>;
+}
+function Sparkline({ card }: { card: SignalCard }): JSX.Element {
+  const points = card.chart;
+  if (points.length < 2) return <div className="signal-chart-empty">等待价格序列</div>;
+  const min = Math.min(...points.map(p => p.price));
+  const max = Math.max(...points.map(p => p.price));
+  const start = points[0]!.ts;
+  const duration = points[points.length - 1]!.ts - start;
+  const line = points.map((p, i) => `${duration > 0 ? 3 + (p.ts - start) / duration * 214 : 3 + i / (points.length - 1) * 214},${max === min ? 32 : 59 - (p.price - min) / (max - min) * 54}`).join(" ");
+  return <svg className="signal-chart" viewBox="0 0 220 64" role="img" aria-label={`${card.symbol} 首次捕获后的价格走势`}><title>信号起点后的已记录价格（采样展示）</title><line x1="0" x2="220" y1="62" y2="62" stroke="#253332" /><polyline points={line} fill="none" stroke="#00d6a0" strokeWidth="2" strokeLinejoin="round" /></svg>;
+}
+function Card({ card, now }: { card: SignalCard; now: number }): JSX.Element {
+  const [copyMessage, setCopyMessage] = useState("");
+  const stale = now - card.updatedAt > 60_000;
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(card.ca); setCopyMessage("已复制"); }
+    catch { setCopyMessage("复制失败，请选中地址复制"); }
+  };
+  return <article className="signal-card" aria-label={`${card.symbol} ${card.chain} 信号卡片`}>
+    <div className="signal-card-top">
+      <span className="signal-count" title="Sidecar 记录的信号事件数，不含冷却期刷新">{card.signalCount}</span>
+      <div className="signal-safety">
+        {card.safety.honeypot === true && <span className="fall">⚠ 貔貅</span>}
+        {card.safety.openSource !== null && <span>{card.safety.openSource ? "✓ 开源" : "未开源"}</span>}
+        {card.safety.abandoned !== null && <span>{card.safety.abandoned ? "✓ 弃权" : "未弃权"}</span>}
+        {card.safety.locked !== null && <span>{card.safety.locked ? "✓ 锁池" : "未锁池"}</span>}
       </div>
-      <Table
-        rowKey="id"
-        size="small"
-        loading={loading}
-        dataSource={filtered}
-        columns={columns}
-        pagination={{ pageSize: 20, showSizeChanger: false }}
-        onRow={(r) => ({ onClick: () => window.open(`/signals/${r.id}`, "_self") })}
-      />
+      <time title={`首次捕获 ${fmtTime(card.firstAt)}`}>{fmtTime(card.firstAt).slice(11)}</time>
     </div>
-  );
+    <div className="signal-card-body">
+      <div className="signal-card-hero">
+        <div className="signal-token">
+          <div className="signal-token-heading">
+            {card.logo && /^https?:\/\//.test(card.logo) ? <img src={card.logo} alt="" loading="lazy" referrerPolicy="no-referrer" onError={e => { e.currentTarget.style.visibility = "hidden"; }} /> : <div className="signal-avatar">{card.symbol.slice(0, 1) || "?"}</div>}
+            <div><a className="signal-symbol" href={card.tokenUrl} target="_blank" rel="noopener noreferrer">{card.symbol || "未命名"} ↗</a><div className="signal-name" title={card.name ?? ""}>{card.name ?? "—"}</div></div>
+          </div>
+          <div className="signal-token-meta"><span className="signal-chain">{card.chain}</span><span>{card.createdAt === null ? "创建时间未知" : `${elapsed(card.createdAt, now)} 前创建`}</span></div>
+          <button className="signal-ca" onClick={() => void copy()} title={`${card.ca}（点击复制）`}>{card.ca.slice(0, 7)}…{card.ca.slice(-6)} ⧉</button>
+          <span className="signal-copy" role="status">{copyMessage}</span>
+          <div className="signal-links"><Link to={`/signals/${card.signalId}`}>信号详情 ↗</Link><GradeTag grade={card.grade} /><span>{card.score} 分</span></div>
+        </div>
+        <div className="signal-performance">
+          <span className="signal-ath-label" title="首次捕获之后最高已记录价格 ÷ 首次捕获价格；并非发行以来的历史 ATH">起点后 ATH</span>
+          <strong className="signal-ath">{card.athMultiple === null ? "—" : `${Number(card.athMultiple.toFixed(2))}x`}</strong>
+          <Sparkline card={card} />
+        </div>
+      </div>
+      <div className="signal-wallets"><span>▣ <strong>{card.smartWallets ?? "—"} 个聪明钱包</strong> 在线</span><span title="当前榜单响应未提供同时买入的平均金额">平均买入金额 {fmtUsd(card.averageBuyUsd)}</span></div>
+      <div className="signal-metrics">
+        <Metric label="市值" from={card.first.marketCap} to={card.current.marketCap} />
+        <Metric label="持有人" from={card.first.holders} to={card.current.holders} format={v => fmtNum(v, 0)} />
+        <Metric label="价格" from={card.first.price} to={card.current.price} format={price} />
+        <Metric label="流动性" from={card.first.liquidity} to={card.current.liquidity} />
+      </div>
+      <div className="signal-card-foot"><span>首次捕获 → 当前快照</span><span className={stale ? "signal-stale" : ""}>快照 {elapsed(card.updatedAt, now)} 前 · 价格 {elapsed(card.priceAt, now)} 前</span></div>
+      {card.historyAmbiguous && <div className="signal-stale">同 CA 存在多条链，旧价格历史无法区分，暂不计算 ATH。</div>}
+    </div>
+  </article>;
+}
+export default function Dashboard(): JSX.Element {
+  const [rows, setRows] = useState<SignalCard[]>([]);
+  const [filter, setFilter] = useState("all");
+  const [query, setQuery] = useState("");
+  const [error, setError] = useState("");
+  const [loaded, setLoaded] = useState(false);
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const refresh = async () => {
+      try { const data = await get<SignalCard[]>("/api/signal-cards"); if (!stopped) { setRows(data); setError(""); } }
+      catch (e) { if (!stopped) setError(String(e)); }
+      finally { if (!stopped) { setLoaded(true); setNow(Date.now()); timer = setTimeout(refresh, 2000); } }
+    };
+    void refresh();
+    return () => { stopped = true; clearTimeout(timer); };
+  }, []);
+  const q = query.trim().toLowerCase();
+  const filtered = rows.filter(r => (filter === "all" || r.grade === filter) && (!q || `${r.symbol} ${r.ca} ${r.chain} ${r.name ?? ""}`.toLowerCase().includes(q)));
+  return <div className="signal-feed">
+    <div className="signal-feed-heading"><div><Typography.Title level={3} style={{ margin: 0 }}>实时信号</Typography.Title><Typography.Text type="secondary">一个 CA，一张卡片 · 同链聚合 · 每 2 秒刷新</Typography.Text></div><Link to="/captures"><Button>捕获监控 ↗</Button></Link></div>
+    <div className="signal-feed-toolbar"><Space wrap><Tag.CheckableTag checked={filter === "all"} onChange={() => setFilter("all")}>全部</Tag.CheckableTag>{GRADES.map(g => <Tag.CheckableTag key={g} checked={filter === g} onChange={() => setFilter(g)}>{g}</Tag.CheckableTag>)}</Space><Input aria-label="搜索币名、CA 或链" placeholder="搜索币名 / CA / 链" allowClear value={query} onChange={e => setQuery(e.target.value)} style={{ width: 230 }} /></div>
+    <div className="signal-feed-note">显示最近 100 个币中的 {filtered.length} 个。ATH 按首次捕获后的已记录价格计算；缺失字段显示 —。聪明钱包为在线人数，非已验证的同时买入人数。</div>
+    {error && <Alert type="error" showIcon message="更新失败，当前显示的是旧快照" description={error} />}
+    {!loaded ? <Spin /> : filtered.length === 0 ? <Empty description="暂无匹配信号，打开 DeBot 信号页后自动捕获" /> : <div className="signal-card-grid">{filtered.map(card => <Card key={card.key} card={card} now={now} />)}</div>}
+  </div>;
 }

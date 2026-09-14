@@ -16,6 +16,7 @@ export interface CaptureRawMsg {
   url: string;
   capturedAt: number;
   kind: "http" | "ws";
+  observedAt?: number;
   data: unknown;
 }
 
@@ -27,7 +28,14 @@ export interface TabHealthMsg {
   loginState: "ok" | "unknown" | "expired";
 }
 
-export type ExtToServerMsg = CaptureRawMsg | TabHealthMsg;
+export interface CaptureDuplicateMsg {
+  type: "capture.duplicate";
+  url: string;
+  capturedAt: number;
+  observedAt?: number;
+}
+
+export type ExtToServerMsg = CaptureRawMsg | CaptureDuplicateMsg | TabHealthMsg;
 
 // ─────────────────────────── WS：服务 → WebUI / 扩展 SW（广播） ───────────────────────────
 
@@ -124,6 +132,9 @@ export interface TradeRow {
   exit_at: number | null;
   exit_price: number | null;
   pnl_sol: number;
+  /** 入场时按所属链原生币 USD 价格换算的 PnL；无法取得历史价格时为 null。 */
+  pnl_usdt: number | null;
+  entry_native_price_usd: number | null;
   status: TradeStatus;
   details: SellEvent[];
 }
@@ -158,8 +169,8 @@ export interface StatsRow {
   avgMaxGainPct: number | null;
   simulatedCount: number;
   winRate: number | null;
-  expectedPnlSol: number | null;
-  maxDrawdownSol: number | null;
+  expectedPnlUsdt: number | null;
+  maxDrawdownUsdt: number | null;
 }
 
 export interface StatsResult {
@@ -197,4 +208,37 @@ export interface ReplayRunDetail extends ReplayDetail {
 
 export interface ProviderInfo extends EnrichmentProviderMeta {
   description: string;
+}
+
+/** 实时流卡片：同链同 CA 固定首次捕获起点，ATH 仅统计起点后的已记录价格。 */
+export interface SignalCard {
+  key: string;
+  signalId: number;
+  chain: string;
+  ca: string;
+  symbol: string;
+  name: string | null;
+  logo: string | null;
+  tokenUrl: string;
+  firstAt: number;
+  updatedAt: number;
+  priceAt: number;
+  createdAt: number | null;
+  signalCount: number;
+  grade: Grade;
+  score: number;
+  first: CardMetrics;
+  current: CardMetrics;
+  athMultiple: number | null;
+  chart: { ts: number; price: number }[];
+  historyAmbiguous: boolean;
+  smartWallets: number | null;
+  averageBuyUsd: number | null;
+  safety: { honeypot: boolean | null; openSource: boolean | null; abandoned: boolean | null; locked: boolean | null };
+}
+export interface CardMetrics {
+  price: number | null;
+  marketCap: number | null;
+  holders: number | null;
+  liquidity: number | null;
 }

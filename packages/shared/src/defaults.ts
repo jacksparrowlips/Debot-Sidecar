@@ -65,8 +65,8 @@ export const DEFAULT_TAG_LIBRARY: TagLibrary = {
 /** 默认策略模板（SPEC §7.10 示意） */
 export const DEFAULT_STRATEGY: Strategy = {
   strategyVersion: 1,
-  initialCapitalSol: 10,
-  entry: { delaySec: 10, amountSol: 0.5 },
+  initialCapitalNative: 10,
+  entry: { delaySec: 10, amountNative: 0.5 },
   exit: [
     { trigger: { pnlPct: 50 }, sellPct: 50 },
     { trigger: { pnlPct: -30 }, sellPct: 100 },

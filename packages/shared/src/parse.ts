@@ -8,7 +8,7 @@ export type CaptureKind = "rank" | "kline" | "unknown-signal" | "other-api";
 export function classifyCapture(url: string, signalApiPrefix: string): CaptureKind {
   let path: string;
   try {
-    path = new URL(url).pathname;
+    path = new URL(url, signalApiPrefix).pathname;
   } catch {
     return "other-api";
   }
@@ -22,7 +22,7 @@ export function classifyCapture(url: string, signalApiPrefix: string): CaptureKi
 /** rank 请求的 chain 查询参数（页面级链筛选，存为信号属性） */
 export function chainFromUrl(url: string): string {
   try {
-    return new URL(url).searchParams.get("chain") ?? "";
+    return new URL(url, "https://debot.ai").searchParams.get("chain") ?? "";
   } catch {
     return "";
   }
@@ -94,7 +94,7 @@ export function parseTokenEntry(
     logo: str(at(entry, "logo")),
     decimals: num(at(entry, "decimals")),
     total_supply: num(at(entry, "total_supply")),
-    chain,
+    chain: str(entry["chain"]) ?? (chain.includes(",") ? "" : chain),
     launchpad: str(at(entry, "launchpad")),
     token_created_at: num(at(entry, "creation_timestamp")),
     price: num(at(market, "price")),

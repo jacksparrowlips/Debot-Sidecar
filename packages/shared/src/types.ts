@@ -162,10 +162,11 @@ export interface ExitRule {
 
 export interface Strategy {
   strategyVersion: number;
-  initialCapitalSol: number;
+  /** 每条链按其原生币记账；统计时以入场时美元价格换算为 USDT。 */
+  initialCapitalNative: number;
   entry: {
     delaySec: number;
-    amountSol: number;
+    amountNative: number;
   };
   exit: ExitRule[];
   costs: {
@@ -181,7 +182,7 @@ export interface SellEvent {
   price: number;
   sellPct: number;
   reason: string;
-  realizedPnlSol: number;
+  realizedPnlNative: number;
 }
 
 export interface SimulatedTrade {
@@ -191,7 +192,8 @@ export interface SimulatedTrade {
   entryPrice: number | null;
   exitAt: number | null;
   exitPrice: number | null;
-  pnlSol: number;
+  /** 原生币数量盈亏，仅为兼容旧存储；跨链聚合不得使用。 */
+  pnlNative: number;
   status: TradeStatus;
   /** 分批出场明细 */
   details: SellEvent[];

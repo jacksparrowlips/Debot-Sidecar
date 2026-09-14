@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Navigate, NavLink, Outlet, Route, Routes, useLocation } from "react-router-dom";
-import { Badge, Layout, Menu, Typography, App as AntApp } from "antd";
+import { Alert, Badge, Layout, Menu, Typography, App as AntApp } from "antd";
 import {
   BellOutlined,
   DashboardOutlined,
@@ -12,6 +12,9 @@ import {
   ThunderboltOutlined,
 } from "@ant-design/icons";
 import { subscribe, subscribeStatus } from "./ws";
+import { get } from "./api";
+import type { CaptureSnapshot } from "@debot/shared";
+import Captures from "./pages/Captures";
 import Dashboard from "./pages/Dashboard";
 import Signals from "./pages/Signals";
 import SignalDetail from "./pages/SignalDetail";
@@ -27,6 +30,15 @@ const { Sider, Header, Content } = Layout;
 /** 主布局壳：侧边导航 + 连接状态 + 全局 alert */
 function Shell(): JSX.Element {
   const [connected, setConnected] = useState(false);
+  const [capture, setCapture] = useState<CaptureSnapshot | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const refresh = () => { void get<CaptureSnapshot>("/api/captures").then(v => { if (!cancelled) setCapture(v); }).catch(() => { if (!cancelled) setCapture(null); }); };
+    refresh(); const timer = setInterval(refresh, 2000);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, []);
+  const challenge = capture?.pageHealth.some(p => p.loginState === "expired") ?? false;
+  const flowing = !!capture && capture.extensionConnections > 0 && capture.lastReceivedAt !== null && capture.now - capture.lastReceivedAt < 60_000 && capture.pageHealth.some(p => p.loginState === "ok");
   const { notification } = AntApp.useApp();
 
   useEffect(() => subscribeStatus(setConnected), []);
@@ -47,6 +59,7 @@ function Shell(): JSX.Element {
 
   const items = [
     { key: "dashboard", icon: <DashboardOutlined />, label: <NavLink to="/">实时流</NavLink> },
+    { key: "captures", icon: <DashboardOutlined />, label: <NavLink to="/captures">捕获监控</NavLink> },
     { key: "signals", icon: <ThunderboltOutlined />, label: <NavLink to="/signals">信号历史</NavLink> },
     { key: "rules", icon: <MenuOutlined />, label: <NavLink to="/rules">规则与标签</NavLink> },
     { key: "notifications", icon: <BellOutlined />, label: <NavLink to="/notifications">通知中心</NavLink> },
@@ -79,12 +92,14 @@ function Shell(): JSX.Element {
             borderBottom: "1px solid #f0f0f0",
           }}
         >
+          <Badge style={{ marginRight: 24 }} status={challenge ? "error" : flowing ? "success" : "warning"} text={challenge ? "DeBot 需要人机验证 · 采集中断" : flowing ? "DeBot 正在供数" : "DeBot 未确认供数"} />
           <Badge
             status={connected ? "success" : "error"}
             text={connected ? "已连接 Sidecar" : "未连接 Sidecar"}
           />
         </Header>
         <Content style={{ padding: 16, overflow: "auto" }}>
+          {challenge && <Alert type="error" showIcon style={{ marginBottom: 16 }} message="DeBot 需要手动完成人机验证，采集已中断" description="自动刷新已停止。请返回 DeBot 原标签页完成验证；下面的卡片可能是旧数据。" />}
           <Outlet />
         </Content>
       </Layout>
@@ -102,6 +117,7 @@ export default function App(): JSX.Element {
       <Route path="/notify" element={<NotifyWindow />} />
       <Route path="/" element={<Shell />}>
         <Route index element={<Dashboard />} />
+        <Route path="captures" element={<Captures />} />
         <Route path="signals" element={<Signals />} />
         <Route path="signals/:id" element={<SignalDetail />} />
         <Route path="rules" element={<Rules />} />

@@ -7,10 +7,14 @@ import {
   parseRankResponse,
   parseTokenEntry,
   type CaptureRawMsg,
+  type CaptureRecord,
+  type ExtToServerMsg,
   type Signal,
   type SignalType,
-  type TabHealthMsg,
+  type LiveMarketUpdate,
 } from "@debot/shared";
+import { rememberCardSnapshot, rememberLiveMarket } from "../store/cards.js";
+import { observeCapture, observePageHealth } from "./captureMonitor.js";
 import { getCtx } from "../context.js";
 import { insertPricePoint, insertRawCapture } from "../store/misc.js";
 import { getTokenStats, insertSignal, upsertTokenStats } from "../store/signals.js";
@@ -22,10 +26,10 @@ import { notifyPriceUpdate } from "../simulator/simulator.js";
  * - 从未见过 / 超过冷却窗口未见 → 信号事件（signals 入库 + 评分管线）
  * - 冷却窗口内 → 刷新：occurrences+1、市值/持有人/流动性快照写 price_points，不生成新信号
  */
-function differEntry(entry: Record<string, unknown>, chain: string, capturedAt: number): void {
+function differEntry(entry: Record<string, unknown>, chain: string, capturedAt: number): string {
   const { db, config, tags } = getCtx();
   const signal = parseTokenEntry(entry, capturedAt, chain);
-  if (signal.token_address.length === 0) return;
+  if (signal.token_address.length === 0) return "缺少地址";
   signal.relevance_tags = applyRelevanceTags(signal, tags);
 
   writePriceSnapshot(signal);
@@ -61,7 +65,7 @@ function differEntry(entry: Record<string, unknown>, chain: string, capturedAt: 
       last_seen: capturedAt,
       occurrences: stats.occurrences + 1,
     });
-    return;
+    return "冷却期刷新";
   }
 
   const signalId = insertSignal(db, {
@@ -75,6 +79,7 @@ function differEntry(entry: Record<string, unknown>, chain: string, capturedAt: 
   });
   // 评分管线异步推进（v1 立即广播，enrichment 最长 15s 不阻塞后续捕获）
   void processSignalEvent(signal, signalId, type === "new", type);
+  return type === "new" ? "新增信号" : "重新出现";
 }
 
 /** rank 轮询快照 → price_points（market_info.price，按轮询频率写入，§7.9） */
@@ -90,12 +95,14 @@ function writePriceSnapshot(signal: Signal): void {
 }
 
 /** WS 上行入口：capture.raw → 分类解析；tab.health → 登录失效告警 */
-export function handleExtMessage(msg: CaptureRawMsg | TabHealthMsg): void {
-  const { db, broadcast } = getCtx();
+export function handleExtMessage(msg: ExtToServerMsg): void {
+  const { broadcast } = getCtx();
 
   if (msg.type === "tab.health") {
+    const changed = observePageHealth(msg);
     // L2：Cloudflare 人机验证页（无法自动恢复，P0 实证）→ 直接升级 L3 告警
     if (msg.loginState === "expired") {
+      if (!changed) return;
       broadcast({
         type: "alert",
         level: "error",
@@ -115,20 +122,55 @@ export function handleExtMessage(msg: CaptureRawMsg | TabHealthMsg): void {
     return;
   }
 
+  observeCapture(msg, (record, parsed) => {
+    if (msg.type === "capture.raw") processCapture(msg, record, parsed);
+  });
+}
+
+function processCapture(msg: CaptureRawMsg, record: CaptureRecord, normalized: unknown[]): void {
+  const { db } = getCtx();
+  if (msg.kind === "ws" && msg.url === "https://debot.ai/api/sidecar/live-market") {
+    record.kind = "live-market";
+    if (!Array.isArray(msg.data)) throw new Error("实时行情格式错误");
+    for (const value of msg.data.slice(0, 500)) {
+      if (!value || typeof value !== "object" || typeof value.chain !== "string" || typeof value.token !== "string") continue;
+      rememberLiveMarket(value as LiveMarketUpdate, msg.capturedAt);
+      normalized.push(value);
+    }
+    record.results["实时更新"] = normalized.length;
+    return;
+  }
   const kind = classifyCapture(msg.url, P0.SIGNAL_API_PREFIX);
+  record.kind = kind;
   if (kind === "rank") {
     const parsed = parseRankResponse(msg.data);
     if (parsed === null) {
+      record.status = "error";
+      record.error = "rank 响应结构不匹配";
       // schema 不符：存 raw 待人工介入（前端改版风险，SPEC §12#4）
       insertRawCapture(db, { url: msg.url, captured_at: msg.capturedAt, payload: msg.data });
       return;
     }
     const chain = chainFromUrl(msg.url);
-    for (const entry of parsed.entries) differEntry(entry, chain, msg.capturedAt);
+    for (const entry of parsed.entries) {
+      const signal = parseTokenEntry(entry, msg.capturedAt, chain);
+      rememberCardSnapshot(signal);
+      const { raw, ...fields } = signal;
+      if (normalized.length < 50) normalized.push(fields);
+      if (signal.symbol && !record.symbols.includes(signal.symbol) && record.symbols.length < 50) record.symbols.push(signal.symbol);
+      for (const key of ["token_address", "symbol", "price", "market_cap_usd", "liquidity_usd", "holders"] as const) {
+        if ((signal[key] === null || signal[key] === "") && !record.missing.includes(key)) record.missing.push(key);
+      }
+      const result = differEntry(entry, chain, msg.capturedAt);
+      record.results[result] = (record.results[result] ?? 0) + 1;
+    }
+    record.results["解析条目"] = parsed.entries.length;
     notifyPriceUpdate();
   } else if (kind === "kline") {
     const parsed = parseKlineResponse(msg.data);
     if (parsed !== null) {
+      record.results["价格点"] = parsed.series.length;
+      normalized.push(...parsed.series.slice(0, 50));
       for (const p of parsed.series) {
         insertPricePoint(db, {
           token_address: p.token_address,
@@ -139,8 +181,12 @@ export function handleExtMessage(msg: CaptureRawMsg | TabHealthMsg): void {
         });
       }
       notifyPriceUpdate();
+    } else {
+      record.status = "error";
+      record.error = "kline 响应结构不匹配";
     }
   } else {
+    record.status = "unrecognized";
     // 其余 debot.ai/api/* 与 signal/ 前缀下未知端点：存 raw 不解析（接口发现，§7.1）
     insertRawCapture(db, { url: msg.url, captured_at: msg.capturedAt, payload: msg.data });
   }

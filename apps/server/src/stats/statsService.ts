@@ -53,11 +53,11 @@ export function computeStats(
         a.gainSum += gainPct;
         a.gainN++;
       }
-      if (trade !== undefined && (trade.status === "closed" || trade.status === "open")) {
+      if (trade !== undefined && trade.pnl_usdt !== null && (trade.status === "closed" || trade.status === "open")) {
         a.simN++;
-        if (trade.pnl_sol > 0) a.winN++;
-        a.pnlSum += trade.pnl_sol;
-        a.curve.push({ entryAt: trade.entry_at ?? row.captured_at, pnl: trade.pnl_sol });
+        if (trade.pnl_usdt > 0) a.winN++;
+        a.pnlSum += trade.pnl_usdt;
+        a.curve.push({ entryAt: trade.entry_at ?? row.captured_at, pnl: trade.pnl_usdt });
       }
     };
 
@@ -82,8 +82,8 @@ export function computeStats(
       avgMaxGainPct: a.gainN > 0 ? Math.round((a.gainSum / a.gainN) * 100) / 100 : null,
       simulatedCount: a.simN,
       winRate: a.simN > 0 ? Math.round((a.winN / a.simN) * 10000) / 100 : null,
-      expectedPnlSol: a.simN > 0 ? Math.round((a.pnlSum / a.simN) * 10000) / 10000 : null,
-      maxDrawdownSol: maxDrawdown(a.curve),
+      expectedPnlUsdt: a.curve.length > 0 ? Math.round((a.pnlSum / a.curve.length) * 10000) / 10000 : null,
+      maxDrawdownUsdt: maxDrawdown(a.curve),
     });
   }
   result.sort((x, y) => y.signalCount - x.signalCount);

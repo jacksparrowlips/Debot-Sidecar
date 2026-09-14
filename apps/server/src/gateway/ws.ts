@@ -20,6 +20,8 @@ export function broadcast(msg: ServerBroadcastMsg): void {
   }
 }
 
+export function extConnectionCount(): number { return extSockets.size; }
+
 export function uiConnectionCount(): number {
   return uiSockets.size;
 }
@@ -33,11 +35,7 @@ export function setExtMessageHandler(fn: (msg: ExtToServerMsg) => void): void {
 export async function registerWs(app: FastifyInstance): Promise<void> {
   await app.register(websocketPlugin, { options: { maxPayload: 32 * 1024 * 1024 } });
 
-  app.get(WS_PATH_EXT, { websocket: true }, (connection) => {
-    const socket = connection.socket as unknown as WsLike & {
-      on: (ev: string, fn: (data?: unknown) => void) => void;
-      readyState: number;
-    };
+  app.get(WS_PATH_EXT, { websocket: true }, (socket) => {
     extSockets.add(socket);
     socket.on("message", (raw?: unknown) => {
       try {
@@ -58,10 +56,7 @@ export async function registerWs(app: FastifyInstance): Promise<void> {
     socket.on("error", drop);
   });
 
-  app.get(WS_PATH_UI, { websocket: true }, (connection) => {
-    const socket = connection.socket as unknown as WsLike & {
-      on: (ev: string, fn: () => void) => void;
-    };
+  app.get(WS_PATH_UI, { websocket: true }, (socket) => {
     uiSockets.add(socket);
     const drop = () => uiSockets.delete(socket);
     socket.on("close", drop);

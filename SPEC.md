@@ -273,8 +273,8 @@ interface EnrichmentProvider {
 ```json
 {
   "strategyVersion": 1,
-  "initialCapitalSol": 10,
-  "entry": { "delaySec": 10, "amountSol": 0.5 },
+    "initialCapitalNative": 10,
+    "entry": { "delaySec": 10, "amountNative": 0.5 },
   "exit": [
     { "trigger": { "pnlPct": 50 },  "sellPct": 50 },
     { "trigger": { "pnlPct": -30 }, "sellPct": 100 },
@@ -360,7 +360,7 @@ P0 抓包操作清单（进度更新 2026-09-14）：
 | strategy_versions | version, snapshot(JSON), created_at |
 | signal_enrichments | signal_id, provider_id, result(JSON), fetched_at, status |
 | price_points | token_address, ts, price, market_cap, source |
-| simulated_trades | signal_id, strategy_version, entry_at, entry_price, exit_at, exit_price, pnl_sol, status |
+| simulated_trades | signal_id, strategy_version, entry_at, entry_price, exit_at, exit_price, pnl_sol（兼容）, pnl_usdt, entry_native_price_usd, status |
 | replay_runs | id, time_from, time_to, rule_version, summary(JSON), created_at |
 | notifications | id, signal_id, grade, notified_at, click_url |
 

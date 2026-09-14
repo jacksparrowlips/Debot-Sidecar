@@ -2,6 +2,7 @@ import { simulateTrade } from "@debot/simulator-core";
 import type { Database as DB } from "better-sqlite3";
 import { getCtx } from "../context.js";
 import { getPriceSeriesSampled, upsertTrade } from "../store/misc.js";
+import { nativeAssetPriceUsd } from "../price/nativeAssetPrice.js";
 
 /**
  * 模拟账户（SPEC §7.10）：对每个非 REJECT 信号按策略模板模拟入场/出场。
@@ -20,6 +21,7 @@ let timer: ReturnType<typeof setTimeout> | null = null;
 interface PendingRow {
   id: number;
   token_address: string;
+  chain: string;
   captured_at: number;
 }
 
@@ -30,13 +32,14 @@ function queryPending(db: DB, strategyVersion: number): PendingRow[] {
         SELECT signal_id, grade,
                ROW_NUMBER() OVER (PARTITION BY signal_id ORDER BY CASE phase WHEN 'v2' THEN 0 ELSE 1 END, id DESC) AS rn
         FROM signal_scores)
-      SELECT s.id, s.token_address, s.captured_at
+      SELECT s.id, s.token_address, s.chain, s.captured_at
       FROM signals s
       JOIN latest l ON l.signal_id = s.id AND l.rn = 1
       LEFT JOIN simulated_trades st ON st.signal_id = s.id AND st.strategy_version = ?
       WHERE l.grade != 'REJECT'
         AND (st.signal_id IS NULL
              OR st.status = 'open'
+             OR st.pnl_usdt IS NULL
              OR (st.status = 'no_data' AND s.captured_at >= ?))
       ORDER BY s.captured_at DESC
       LIMIT ?`,
@@ -56,6 +59,8 @@ async function runOnce(): Promise<void> {
       signalTime: row.captured_at,
       priceSeries: series,
     });
+    const entryNativePriceUsd =
+      trade.entryAt === null ? null : await nativeAssetPriceUsd(db, row.chain ?? "", trade.entryAt);
     // SimulatedTrade（camelCase）→ 存储行（snake_case）
     upsertTrade(db, {
       signal_id: trade.signalId,
@@ -64,7 +69,10 @@ async function runOnce(): Promise<void> {
       entry_price: trade.entryPrice,
       exit_at: trade.exitAt,
       exit_price: trade.exitPrice,
-      pnl_sol: trade.pnlSol,
+      pnl_sol: trade.pnlNative,
+      pnl_usdt:
+        entryNativePriceUsd === null ? null : trade.pnlNative * entryNativePriceUsd,
+      entry_native_price_usd: entryNativePriceUsd,
       status: trade.status,
       details: trade.details,
     });

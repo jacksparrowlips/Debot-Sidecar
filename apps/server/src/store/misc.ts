@@ -174,16 +174,19 @@ export function upsertTrade(
     exit_at: number | null;
     exit_price: number | null;
     pnl_sol: number;
+    pnl_usdt: number | null;
+    entry_native_price_usd: number | null;
     status: TradeStatus;
     details: SellEvent[];
   },
 ): void {
   db.prepare(
-    `INSERT INTO simulated_trades (signal_id, strategy_version, entry_at, entry_price, exit_at, exit_price, pnl_sol, status, details)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO simulated_trades (signal_id, strategy_version, entry_at, entry_price, exit_at, exit_price, pnl_sol, pnl_usdt, entry_native_price_usd, status, details)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(signal_id, strategy_version) DO UPDATE SET
        entry_at = excluded.entry_at, entry_price = excluded.entry_price, exit_at = excluded.exit_at,
-       exit_price = excluded.exit_price, pnl_sol = excluded.pnl_sol, status = excluded.status, details = excluded.details`,
+       exit_price = excluded.exit_price, pnl_sol = excluded.pnl_sol, pnl_usdt = excluded.pnl_usdt,
+       entry_native_price_usd = excluded.entry_native_price_usd, status = excluded.status, details = excluded.details`,
   ).run(
     t.signal_id,
     t.strategy_version,
@@ -192,6 +195,8 @@ export function upsertTrade(
     t.exit_at,
     t.exit_price,
     t.pnl_sol,
+    t.pnl_usdt,
+    t.entry_native_price_usd,
     t.status,
     JSON.stringify(t.details),
   );
