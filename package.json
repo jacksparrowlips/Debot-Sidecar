@@ -1,0 +1,21 @@
+{
+  "name": "debot-sidecar",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev:server": "pnpm --filter @debot/server dev",
+    "dev:web": "pnpm --filter @debot/web dev",
+    "dev:extension": "pnpm --filter @debot/extension dev",
+    "build": "pnpm -r build",
+    "build:web": "pnpm --filter @debot/web build",
+    "build:extension": "pnpm --filter @debot/extension build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}
