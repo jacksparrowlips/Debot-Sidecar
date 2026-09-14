@@ -156,8 +156,16 @@ void (async () => {
   } else {
     $serverUrl.value = serverBase;
   }
-  // 询问 SW 当前连接状态（badge 初始渲染）
-  void browser.runtime.sendMessage({ type: "get-keepalive" }).catch(() => {});
+  // 询问 SW 当前 WS 连接状态（打开前 SW 已连接的场合没有新广播，需拉快照）
+  try {
+    const r = (await browser.runtime.sendMessage({ type: "get-ws-status" })) as
+      | { connected: boolean }
+      | undefined;
+    $badge.textContent = r?.connected ? "已连接" : "未连接";
+    $badge.className = `badge ${r?.connected ? "on" : "off"}`;
+  } catch {
+    // SW 未就绪：保持初始渲染
+  }
   await loadInitial();
 })();
 

@@ -170,6 +170,10 @@ browser.runtime.onMessage.addListener((msg: unknown, sender: { tab?: { id?: numb
     case "get-keepalive": {
       return keepalive;
     }
+    case "get-ws-status": {
+      // Side Panel 打开时拉取当前连接快照（打开前 SW 已连接的场合没有新广播）
+      return { connected: ws !== null && ws.readyState === WebSocket.OPEN };
+    }
     case "set-server": {
       // Side Panel 修改 Sidecar 地址：立即重连
       const v = (msg as { serverBase?: string }).serverBase;
