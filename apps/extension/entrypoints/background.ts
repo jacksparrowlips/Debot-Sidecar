@@ -168,11 +168,13 @@ browser.runtime.onMessage.addListener((msg: unknown, sender: { tab?: { id?: numb
       return;
     }
     case "get-keepalive": {
-      return keepalive;
+      // ponytail: webextension-polyfill（Chrome/Edge）onMessage 只有返回 Promise 才回传响应；
+      // 同步返回普通对象会被视作"无响应"直接关闭通道，调用方 sendMessage 变 reject。
+      return Promise.resolve(keepalive);
     }
     case "get-ws-status": {
       // Side Panel 打开时拉取当前连接快照（打开前 SW 已连接的场合没有新广播）
-      return { connected: ws !== null && ws.readyState === WebSocket.OPEN };
+      return Promise.resolve({ connected: ws !== null && ws.readyState === WebSocket.OPEN });
     }
     case "set-server": {
       // Side Panel 修改 Sidecar 地址：立即重连
