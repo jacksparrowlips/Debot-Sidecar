@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "paths": {
+      "@debot/shared": ["../../packages/shared/src/index.ts"],
+      "@debot/rules-engine": ["../../packages/rules-engine/src/index.ts"],
+      "@debot/simulator-core": ["../../packages/simulator-core/src/index.ts"]
+    }
+  },
+  "include": ["src"]
+}
