@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "paths": {
+      "@debot/shared": ["../../packages/shared/src/index.ts"]
+    }
+  },
+  "include": ["entrypoints", ".wxt/types/imports.d.ts", ".wxt/types/paths.d.ts", "wxt.config.ts"]
+}

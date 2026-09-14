@@ -1,0 +1,17 @@
+{
+  "name": "@debot/extension",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wxt",
+    "build": "wxt build",
+    "typecheck": "wxt prepare && tsc --noEmit"
+  },
+  "dependencies": {
+    "@debot/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "wxt": "^0.19.13"
+  }
+}
