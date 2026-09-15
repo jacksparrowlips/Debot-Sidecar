@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DeBot Signal Sidecar</title>
+    <script type="module" crossorigin src="/chunks/sidepanel-CJUvERpx.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/sidepanel-vLK189Bx.css">
+  </head>
+  <body>
+    <header>
+      <span class="brand">DeBot Sidecar</span>
+      <span id="ws-badge" class="badge off">未连接</span>
+    </header>
+    <div id="alert-banner" class="alert hidden"></div>
+    <a id="capture-monitor" target="_blank" rel="noopener" href="http://127.0.0.1:8787/captures">查看捕获监控 ↗</a>
+    <main id="signals"></main>
+    <footer>
+      <input id="server-url" type="text" spellcheck="false" placeholder="http://127.0.0.1:8787">
+      <button id="save-server">保存</button>
+    </footer>
+  </body>
+</html>

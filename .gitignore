@@ -1,7 +1,6 @@
 node_modules/
 dist/
 .output/
-apps/extension/extension-build/
 apps/extension/.wxt/
 .DS_Store
 *.log
