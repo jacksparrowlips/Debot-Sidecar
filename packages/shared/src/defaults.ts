@@ -104,6 +104,9 @@ export const DEFAULT_CONFIG: SidecarConfig = {
     l0IntervalMin: 3,
     l1: true,
     l1SilenceMin: 3,
+    // 音频保活 + 可见性欺骗：补 Edge「活跃白名单只防冻结、不防后台定时器节流」的缺口（需一次页面点击解锁音频）
+    audio: true,
+    visibilityHook: true,
   },
   tokenUrlTemplate: P0.TOKEN_URL_TEMPLATE,
 };

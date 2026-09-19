@@ -18,6 +18,8 @@ export interface CaptureSnapshot {
   now: number;
   extensionConnections: number;
   lastReceivedAt: number | null;
+  /** 最近一次信号源捕获（rank/kline）的服务端接收时间；null=启动以来从未供数。与 lastReceivedAt（含杂项流量）区分 */
+  lastSignalAt: number | null;
   received: number;
   errors: number;
   perMinute: number;

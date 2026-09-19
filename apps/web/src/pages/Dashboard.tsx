@@ -1,10 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Alert, Button, Empty, Input, Space, Spin, Tag, Typography } from "antd";
 import type { SignalCard } from "@debot/shared";
 import { get } from "../api";
 import { GRADES, GradeTag, fmtNum, fmtTime, fmtUsd } from "../grades";
 import "./signal-cards.css";
+
+/** 无限滚动每批渲染张数：初始只渲染最新 30 张，触底再加载，避免全量渲染上百张卡片 */
+const PAGE_SIZE = 30;
 
 const price = (v: number | null) => v === null ? "—" : `$${v.toLocaleString("en-US", { maximumSignificantDigits: 5 })}`;
 const elapsed = (timestamp: number, now: number) => {
@@ -83,6 +86,8 @@ export default function Dashboard(): JSX.Element {
   const [error, setError] = useState("");
   const [loaded, setLoaded] = useState(false);
   const [now, setNow] = useState(Date.now());
+  const [visible, setVisible] = useState(PAGE_SIZE);
+  const sentinelRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     let stopped = false;
     let timer: ReturnType<typeof setTimeout>;
@@ -96,11 +101,30 @@ export default function Dashboard(): JSX.Element {
   }, []);
   const q = query.trim().toLowerCase();
   const filtered = rows.filter(r => (filter === "all" || r.grade === filter) && (!q || `${r.symbol} ${r.ca} ${r.chain} ${r.name ?? ""}`.toLowerCase().includes(q)));
+  const shown = filtered.slice(0, visible);
+  // 触底增量渲染：哨兵进入视口即多渲染一批。新信号插入顶部时依赖浏览器原生 scroll anchoring 防跳动
+  // ponytail: 上限是「渲染截断」；若卡片量级再上一个台阶（数千张），升级为虚拟滚动（react-window）
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (el === null) return;
+    const io = new IntersectionObserver((entries) => {
+      if (entries.some(e => e.isIntersecting)) setVisible(v => v + PAGE_SIZE);
+    }, { rootMargin: "300px" });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [visible, filtered.length]);
   return <div className="signal-feed">
     <div className="signal-feed-heading"><div><Typography.Title level={3} style={{ margin: 0 }}>实时信号</Typography.Title><Typography.Text type="secondary">一个 CA，一张卡片 · 同链聚合 · 每 2 秒刷新</Typography.Text></div><Link to="/captures"><Button>捕获监控 ↗</Button></Link></div>
-    <div className="signal-feed-toolbar"><Space wrap><Tag.CheckableTag checked={filter === "all"} onChange={() => setFilter("all")}>全部</Tag.CheckableTag>{GRADES.map(g => <Tag.CheckableTag key={g} checked={filter === g} onChange={() => setFilter(g)}>{g}</Tag.CheckableTag>)}</Space><Input aria-label="搜索币名、CA 或链" placeholder="搜索币名 / CA / 链" allowClear value={query} onChange={e => setQuery(e.target.value)} style={{ width: 230 }} /></div>
+    <div className="signal-feed-toolbar"><Space wrap><Tag.CheckableTag checked={filter === "all"} onChange={() => { setFilter("all"); setVisible(PAGE_SIZE); }}>全部</Tag.CheckableTag>{GRADES.map(g => <Tag.CheckableTag key={g} checked={filter === g} onChange={() => { setFilter(g); setVisible(PAGE_SIZE); }}>{g}</Tag.CheckableTag>)}</Space><Input aria-label="搜索币名、CA 或链" placeholder="搜索币名 / CA / 链" allowClear value={query} onChange={e => { setQuery(e.target.value); setVisible(PAGE_SIZE); }} style={{ width: 230 }} /></div>
     <div className="signal-feed-note">显示最近 100 个币中的 {filtered.length} 个。ATH 按首次捕获后的已记录价格计算；缺失字段显示 —。聪明钱包为在线人数，非已验证的同时买入人数。</div>
     {error && <Alert type="error" showIcon message="更新失败，当前显示的是旧快照" description={error} />}
-    {!loaded ? <Spin /> : filtered.length === 0 ? <Empty description="暂无匹配信号，打开 DeBot 信号页后自动捕获" /> : <div className="signal-card-grid">{filtered.map(card => <Card key={card.key} card={card} now={now} />)}</div>}
+    <div className="signal-feed-scroll">
+      {!loaded ? <Spin /> : filtered.length === 0 ? <Empty description="暂无匹配信号，打开 DeBot 信号页后自动捕获" /> : <>
+        <div className="signal-card-grid">{shown.map(card => <Card key={card.key} card={card} now={now} />)}</div>
+        {visible < filtered.length
+          ? <div ref={sentinelRef} className="signal-feed-more">已显示 {shown.length} / {filtered.length} 张 · 下拉到底自动加载</div>
+          : <div className="signal-feed-more">已显示全部 {filtered.length} 张</div>}
+      </>}
+    </div>
   </div>;
 }

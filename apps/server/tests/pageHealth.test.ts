@@ -9,10 +9,10 @@ test("recognizes Chinese challenge body even when title is debot.ai", () => {
   assert.equal(isChallengePage("DeBot", "", true), true);
   assert.equal(isChallengePage("DeBot", "AI 信号 实时行情", false), false);
 });
-test("background, discarded, challenged, unknown and already-reloaded tabs never reload", () => {
-  const state = { expired: false, active: true, discarded: false, attempted: false, healthAt: 990000, captureAt: 1000 };
+test("background, discarded, challenged, unknown, navigated-away and already-reloaded tabs never reload", () => {
+  const state = { expired: false, active: true, discarded: false, attempted: false, healthAt: 990000, signalAt: 1000, signalUrl: "https://debot.ai/signal", url: "https://debot.ai/signal" };
   assert.equal(mayReloadPage(state, 1000000, 180000), true);
-  for (const change of [{ expired: true }, { active: false }, { discarded: true }, { attempted: true }, { healthAt: 0 }, { captureAt: 0 }]) assert.equal(mayReloadPage({ ...state, ...change }, 1000000, 180000), false);
+  for (const change of [{ expired: true }, { active: false }, { discarded: true }, { attempted: true }, { healthAt: 0 }, { signalAt: 0 }, { signalUrl: null }, { url: "https://debot.ai/token/detail" }]) assert.equal(mayReloadPage({ ...state, ...change }, 1000000, 180000), false);
 });
 test("challenge health survives subsequent UI snapshot reads and deduplicates alerts", () => {
   const msg = { type: "tab.health" as const, tabId: 999, url: "https://debot.ai/", loginState: "expired" as const, signalSilenceMs: 2000 };

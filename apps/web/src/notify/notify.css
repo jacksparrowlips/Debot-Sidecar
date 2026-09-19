@@ -14,6 +14,22 @@
   color: #1f2329;
 }
 
+/* 右上角跳转主页（SPEC §7.6：小窗常驻，主页入口） */
+.nq-home {
+  position: fixed;
+  top: 8px;
+  right: 10px;
+  font-size: 12px;
+  color: #69b1ff;
+  text-decoration: none;
+  opacity: 0.75;
+  z-index: 10;
+}
+.nq-home:hover {
+  opacity: 1;
+  text-decoration: underline;
+}
+
 .nq-idle {
   color: #8b93a5;
   text-align: center;
@@ -145,4 +161,67 @@
 [data-theme="light"] .nq-storm {
   background: rgba(250, 173, 20, 0.12);
   color: #ad6800;
+}
+
+/* 系统通知授权引导（Chrome 要求权限请求在用户手势内触发，故提供显式入口） */
+.nq-perm {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(22, 119, 255, 0.14);
+  color: #69b1ff;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+  margin-bottom: 10px;
+}
+.nq-perm:hover {
+  background: rgba(22, 119, 255, 0.22);
+}
+.nq-perm-denied {
+  cursor: default;
+  background: rgba(250, 173, 20, 0.12);
+  color: #ffe58f;
+}
+[data-theme="light"] .nq-perm-denied {
+  color: #ad6800;
+}
+
+/* REJECT 灰卡轻通知（响铃即通知：被过滤也告知原因，紧凑单行） */
+.nq-rejcard {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #4b5563;
+  border-radius: 8px;
+  padding: 3px 10px;
+  margin-bottom: 6px;
+  opacity: 0.6;
+  cursor: pointer;
+  font-size: 12px;
+}
+.nq-rejcard:hover {
+  opacity: 0.85;
+}
+.nq-rej-symbol {
+  font-weight: 800;
+  white-space: nowrap;
+}
+.nq-rej-meta {
+  opacity: 0.8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* VERY_HIGH 红色强化（高置信度醒目） */
+.nq-card--vh {
+  border-width: 3px;
+  background: linear-gradient(135deg, rgba(255, 77, 79, 0.22), rgba(255, 77, 79, 0.05));
+}
+.nq-card--vh .nq-symbol {
+  font-size: 26px;
+}
+[data-theme="light"] .nq-card--vh {
+  background: linear-gradient(135deg, rgba(255, 77, 79, 0.16), rgba(255, 77, 79, 0.04));
 }

@@ -1,11 +1,11 @@
 // content script（isolated world，SPEC §7.1/§7.8）：
 // 1) 注入 MAIN world hook 脚本并桥接其 postMessage → service worker
 // 2) L2 检测：Cloudflare 人机验证页（P0 候选 title "Just a moment…"，P1 实测定稿）
-// 3) L0 保活：合成 mousemove/scroll（默认关，P0 isTrusted 有效性未定稿）
+// 3) 保活：音频保活（防 Chromium 后台定时器节流）+ 可见性欺骗（MAIN world）+ L0 合成事件
 // 4) 心跳上报（供 SW 汇总 tab.health）
 
 import { browser } from "wxt/browser";
-import { P0, isChallengePage } from "@debot/shared";
+import { P0, isChallengePage, type KeepaliveConfig } from "@debot/shared";
 
 const BRIDGE_SOURCE = "debot-sidecar-hook";
 
@@ -46,23 +46,76 @@ export default defineContentScript({
         .catch(() => {});
     }, 30_000);
 
-    // ── L0：合成事件（默认关；P0 静置实测有效后由设置页开启）──
+    // ── 保活：音频 + 可见性欺骗 + L0 合成事件（加载时 get-keepalive 拉取；SW 每分钟 refreshConfig 后广播动态生效）──
+    let audioCtx: AudioContext | null = null;
+    let oscillator: OscillatorNode | null = null;
+    /** 音频保活：极低音量正弦波让页面 audible → 豁免 Chromium 后台定时器节流/冻结
+     *  （Edge「始终保持活跃」白名单只防冻结、不防约 1 次/分钟的节流）。
+     *  autoplay 策略：AudioContext 创建后可能 suspended，挂一次性手势（pointerdown/keydown）resume 解锁 */
+    function setAudio(on: boolean): void {
+      if (on) {
+        if (audioCtx !== null) return; // 已在运行
+        try {
+          audioCtx = new AudioContext();
+          oscillator = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          gain.gain.value = 0.001; // 人耳不可闻；audible 判定看音频输出流是否活跃，不看能量
+          oscillator.connect(gain).connect(audioCtx.destination);
+          oscillator.start();
+          void audioCtx.resume().catch(() => {}); // 页面已有用户激活时直接生效
+          document.addEventListener("pointerdown", () => void audioCtx?.resume().catch(() => {}), { once: true });
+          document.addEventListener("keydown", () => void audioCtx?.resume().catch(() => {}), { once: true });
+        } catch {
+          try { void audioCtx?.close(); } catch { /* ignore */ }
+          audioCtx = null;
+          oscillator = null;
+        }
+      } else {
+        try { oscillator?.stop(); } catch { /* ignore */ }
+        try { void audioCtx?.close(); } catch { /* ignore */ }
+        audioCtx = null;
+        oscillator = null;
+      }
+    }
+
+    /** 通知 MAIN world hook 安装/还原可见性欺骗（injected 默认先装，配置为关时在此还原） */
+    function postVisibilityHook(on: boolean): void {
+      window.postMessage({ source: "debot-sidecar-content", visibilityHook: on }, window.location.origin);
+    }
+
     let l0Timer: ReturnType<typeof setInterval> | null = null;
+    /** L0 合成事件（默认关，P0 isTrusted 有效性未定稿） */
+    function setL0(on: boolean, intervalMin: number): void {
+      if (l0Timer !== null) {
+        clearInterval(l0Timer);
+        l0Timer = null;
+      }
+      if (!on) return;
+      l0Timer = setInterval(() => {
+        const x = Math.floor(Math.random() * window.innerWidth);
+        const y = Math.floor(Math.random() * window.innerHeight);
+        document.dispatchEvent(new MouseEvent("mousemove", { clientX: x, clientY: y, bubbles: true }));
+        window.scrollBy(0, 8);
+        window.scrollBy(0, -8);
+      }, Math.max(1, intervalMin) * 60_000);
+    }
+
+    function applyKeepalive(cfg: KeepaliveConfig | undefined): void {
+      if (cfg === undefined) return;
+      setAudio(cfg.audio !== false); // 字段缺省视为开（默认开语义，兼容旧版 server 下发的配置）
+      postVisibilityHook(cfg.visibilityHook !== false);
+      setL0(cfg.l0 === true, cfg.l0IntervalMin);
+    }
+
     void browser.runtime
       .sendMessage({ type: "get-keepalive" })
-      .then((cfg) => {
-        const keepalive = cfg as { l0: boolean; l0IntervalMin: number } | undefined;
-        if (keepalive?.l0 === true) {
-          l0Timer = setInterval(() => {
-            const x = Math.floor(Math.random() * window.innerWidth);
-            const y = Math.floor(Math.random() * window.innerHeight);
-            document.dispatchEvent(new MouseEvent("mousemove", { clientX: x, clientY: y, bubbles: true }));
-            window.scrollBy(0, 8);
-            window.scrollBy(0, -8);
-          }, Math.max(1, keepalive.l0IntervalMin) * 60_000);
-        }
-      })
+      .then((cfg) => applyKeepalive(cfg as KeepaliveConfig | undefined))
       .catch(() => {});
+    // SW 每分钟 refreshConfig 后广播：设置页开关 ≤1 分钟动态生效（无需刷新 DeBot 页面）
+    browser.runtime.onMessage.addListener((msg: unknown) => {
+      const m = msg as { type?: string; keepalive?: KeepaliveConfig } | null;
+      if (m?.type === "keepalive-config") applyKeepalive(m.keepalive);
+    });
   },
 });
 

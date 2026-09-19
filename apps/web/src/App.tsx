@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Navigate, NavLink, Outlet, Route, Routes, useLocation } from "react-router-dom";
-import { Alert, Badge, Layout, Menu, Typography, App as AntApp } from "antd";
+import { Alert, Badge, Button, Layout, Menu, Typography, App as AntApp } from "antd";
 import {
   BellOutlined,
   DashboardOutlined,
@@ -38,7 +38,9 @@ function Shell(): JSX.Element {
     return () => { cancelled = true; clearInterval(timer); };
   }, []);
   const challenge = capture?.pageHealth.some(p => p.loginState === "expired") ?? false;
-  const flowing = !!capture && capture.extensionConnections > 0 && capture.lastReceivedAt !== null && capture.now - capture.lastReceivedAt < 60_000 && capture.pageHealth.some(p => p.loginState === "ok");
+  // 供数判定只看信号源（rank/kline → lastSignalAt）；live-market/noticeV2 等杂项会让 lastReceivedAt 永远新鲜（2026-09-19 实测盲区）
+  const signalFresh = !!capture && capture.lastSignalAt !== null && capture.now - capture.lastSignalAt < 60_000;
+  const silenceMin = capture?.lastSignalAt != null ? Math.floor((capture.now - capture.lastSignalAt) / 60_000) : null;
   const { notification } = AntApp.useApp();
 
   useEffect(() => subscribeStatus(setConnected), []);
@@ -92,7 +94,15 @@ function Shell(): JSX.Element {
             borderBottom: "1px solid #f0f0f0",
           }}
         >
-          <Badge style={{ marginRight: 24 }} status={challenge ? "error" : flowing ? "success" : "warning"} text={challenge ? "DeBot 需要人机验证 · 采集中断" : flowing ? "DeBot 正在供数" : "DeBot 未确认供数"} />
+          <Button
+            size="small"
+            icon={<NotificationOutlined />}
+            style={{ marginRight: 24 }}
+            onClick={openNotifyWindow}
+          >
+            通知小窗
+          </Button>
+          <Badge style={{ marginRight: 24 }} status={challenge ? "error" : signalFresh ? "success" : "warning"} text={challenge ? "DeBot 需要人机验证 · 采集中断" : signalFresh ? "DeBot 正在供数" : silenceMin !== null ? `信号源静默 ${silenceMin} 分钟 · DeBot 页面可能不在信号页` : "未确认信号源供数"} />
           <Badge
             status={connected ? "success" : "error"}
             text={connected ? "已连接 Sidecar" : "未连接 Sidecar"}

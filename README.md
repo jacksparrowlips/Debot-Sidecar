@@ -71,11 +71,21 @@ pnpm build           # web + extension 全部构建
 - 规则集/策略：WebUI「规则」页表单或 JSON 双模式编辑，任何变更产生新版本，可回滚
 - 规则/评分/模拟引擎核心均为纯函数，改动可先 `pnpm --filter @debot/rules-engine test` 验证
 
+## 系统通知（macOS / Win11）
+
+双通道：`/notify` 小窗的 Web Notification API + 扩展 `chrome.notifications`，两平台均弹系统级通知（macOS 通知中心 / Win11 操作中心）。首次需在 `/notify` 小窗授权一次通知权限。
+
+- 强通知：等级 ≥ `cardGrade`（默认 HIGH）弹大卡片；≥ `systemGrade`（默认 VERY_HIGH）追加系统通知
+- VERY_HIGH：系统通知带 🚨 前缀，Win11 上常驻不自动消失（requireInteraction）；小窗内红色强化卡片
+- 被规则过滤（REJECT）：小窗灰色轻卡片附过滤原因（命中拒绝规则 / 总分未达 LOW 线），不响铃、不占强通知限速配额；60 秒内每满 3 条聚合弹一条静音系统通知
+- macOS 提高存在感（可选）：系统设置 → 通知 → Chrome → 通知样式选「提醒」（不自动消失）；勿扰/专注模式下系统通知会被系统屏蔽，属平台限制
+- Win11：设置 → 系统 → 通知，确认 Chrome/Edge 的通知已开启
+
 ## 验证清单（验收路径）
 
 1. 服务启动：`pnpm dev:server` 后访问 `http://127.0.0.1:8787/`（WebUI）与 `/api/config`
 2. 扩展连通：打开 debot.ai，Side Panel 出现实时信号；断开服务后扩展自动重连
-3. 通知：设置页「测试通知」打开 /notify 小窗；等级 ≥ HIGH 弹卡（默认）
+3. 通知：设置页「测试通知」打开 /notify 小窗；等级 ≥ HIGH 弹卡（默认）；systemGrade 以上弹系统通知；REJECT 弹灰卡附过滤原因
 4. 静默保活：DeBot 页签保持前台即可；若页面静默超过阈值，扩展自动 reload（L1），持续静默触发告警（L3）
 5. 回放与统计：规则页改阈值 → 产生新版本 → 回放页对比新旧版本筛选差异
 

@@ -21,6 +21,9 @@ import { getTokenStats, insertSignal, upsertTokenStats } from "../store/signals.
 import { processSignalEvent } from "./scoring.js";
 import { notifyPriceUpdate } from "../simulator/simulator.js";
 
+/** L3 静默告警上次发出时间（节流防刷屏） */
+let lastL3AlertAt = 0;
+
 /**
  * 差分器（SPEC §7.2/§7.5）：按 token_address 与历史比对。
  * - 从未见过 / 超过冷却窗口未见 → 信号事件（signals 入库 + 评分管线）
@@ -109,13 +112,15 @@ export function handleExtMessage(msg: ExtToServerMsg): void {
         message: `DeBot 标签页（#${msg.tabId}）出现 Cloudflare 人机验证，捕获已中断——请到浏览器手动点击完成验证（不自动重登，SPEC §7.8 L2）`,
       });
     } else {
-      // L3：L1 已 reload 但捕获静默仍未恢复（silence > 2×l1SilenceMin）→ 告警升级
+      // L3：信号源静默（rank/kline 停更，扩展按 signalAt 上报真实静默）→ 告警。
+      // 心跳 30s 一次，静默期会连续命中：10 分钟最多一条，防 WebUI 通知刷屏
       const threshold = getCtx().config.keepalive.l1SilenceMin * 60_000 * 2;
-      if (getCtx().config.keepalive.l1 && msg.signalSilenceMs > threshold) {
+      if (getCtx().config.keepalive.l1 && msg.signalSilenceMs > threshold && Date.now() - lastL3AlertAt > 10 * 60_000) {
+        lastL3AlertAt = Date.now();
         broadcast({
           type: "alert",
           level: "warn",
-          message: `捕获已静默 ${Math.round(msg.signalSilenceMs / 60_000)} 分钟，L1 自动刷新未能恢复——请检查 DeBot 标签页（SPEC §7.8 L3）`,
+          message: `信号源已静默 ${Math.round(msg.signalSilenceMs / 60_000)} 分钟（rank 轮询停更）——DeBot 页面可能已离开信号页，或轮询挂死且 L1 自动刷新未能恢复。请回到 DeBot 信号页（SPEC §7.8 L3）`,
         });
       }
     }

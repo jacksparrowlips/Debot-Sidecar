@@ -1,7 +1,10 @@
 // /notify 通知小窗（SPEC §7.6.1-7.6.5）：
 // - 大卡片：等级色边框、CA 一键复制、命中规则明细、相关性标签、热度区块（enrichment 异步补全）
 // - 点击卡片跳 token 页；声音（内置蜂鸣/自定义 /sounds/）；系统通知兜底（Notification API）
+// - REJECT 灰卡轻通知（响铃即通知：被过滤也告知原因，不占限速配额、不响铃）；聚合一分钟满 3 条弹静音系统通知
+// - VERY_HIGH：红色强化卡片 + 系统通知 🚨 前缀 + requireInteraction（Win11 常驻）
 // - 通知风暴限速：1 分钟内第 6 条起降级为侧边计数，点击展开
+// - 系统通知授权：首次点「开启系统通知」按钮（Chrome 要求权限请求在用户手势内触发）
 // - 常驻至用户关闭（无自动消失）
 import { useEffect, useRef, useState } from "react";
 import { ConfigProvider, theme } from "antd";
@@ -16,6 +19,14 @@ interface QueuedCard {
   grade: string;
   signal: SignalSummary;
   score: ScoreResult;
+  clickUrl: string;
+}
+
+/** REJECT 灰卡条目（轻通知：一句话原因） */
+interface QueuedReject {
+  key: string;
+  signal: SignalSummary;
+  reason: string;
   clickUrl: string;
 }
 
@@ -90,7 +101,7 @@ function Card({ item, onDismiss, isDark }: { item: QueuedCard; onDismiss: () => 
   const s = item.signal;
   return (
     <div
-      className="nq-card"
+      className={`nq-card${item.grade === "VERY_HIGH" ? " nq-card--vh" : ""}`}
       style={{ borderColor: meta.color, boxShadow: item.grade === "VERY_HIGH" ? `0 0 24px ${meta.color}66` : undefined }}
       onClick={() => window.open(item.clickUrl, "_blank", "noopener")}
     >
@@ -146,9 +157,36 @@ function Card({ item, onDismiss, isDark }: { item: QueuedCard; onDismiss: () => 
   );
 }
 
+/** REJECT 灰卡（响铃即通知）：紧凑单行，点击开 token 页；不响铃、不占强通知配额 */
+function RejectedCard({ item, onDismiss }: { item: QueuedReject; onDismiss: () => void }): JSX.Element {
+  const s = item.signal;
+  return (
+    <div className="nq-rejcard" onClick={() => window.open(item.clickUrl, "_blank", "noopener")}>
+      <span className="nq-rej-symbol">{s.symbol || "（无 symbol）"}</span>
+      <span className="nq-rej-meta">
+        {s.chain}｜{fmtTime(s.captured_at)}｜已过滤：{item.reason}
+      </span>
+      <button
+        className="nq-close"
+        onClick={(e) => {
+          e.stopPropagation();
+          onDismiss();
+        }}
+      >
+        ×
+      </button>
+    </div>
+  );
+}
+
 export default function NotifyWindow(): JSX.Element {
   const [cards, setCards] = useState<QueuedCard[]>([]);
+  const [rejects, setRejects] = useState<QueuedReject[]>([]);
   const [stormCount, setStormCount] = useState(0);
+  // 系统通知权限：Chrome 要求 requestPermission 在用户手势内调用，WS 回调里请求会被静默忽略
+  const [notifPerm, setNotifPerm] = useState<NotificationPermission | "unsupported">(
+    "Notification" in window ? Notification.permission : "unsupported",
+  );
   const [cfg, setCfg] = useState<SidecarConfig["notify"] | null>(null);
   const stormTimestamps = useRef<number[]>([]);
 
@@ -177,6 +215,25 @@ export default function NotifyWindow(): JSX.Element {
         if (msg.type !== "notification") return;
         const n = msg as NotificationMsg;
 
+        // REJECT 灰卡轻通知（响铃即通知：被过滤也告知原因）：不占强通知限速、不响铃
+        if (n.grade === "REJECT") {
+          setRejects((prev) =>
+            [
+              { key: `r-${n.signal.id}-${Date.now()}`, signal: n.signal, reason: n.reason ?? "", clickUrl: n.clickUrl },
+              ...prev,
+            ].slice(0, 10),
+          );
+          // 聚合触发的系统通知：固定 tag 互相替换、静音（不与页面强通知声音叠加）
+          if (n.systemNotify && "Notification" in window && Notification.permission === "granted") {
+            new Notification(`已过滤：${n.signal.symbol}`, {
+              body: n.reason ?? "",
+              tag: "debot-reject-summary",
+              silent: true,
+            }).onclick = () => window.open(n.clickUrl, "_blank", "noopener");
+          }
+          return;
+        }
+
         // 通知风暴限速（§7.6.2）：窗口期内第 6 条起降级为计数
         const now = Date.now();
         stormTimestamps.current = stormTimestamps.current.filter((t) => now - t < STORM_WINDOW_MS);
@@ -196,10 +253,13 @@ export default function NotifyWindow(): JSX.Element {
         playSound(cfg?.sound ?? { enabled: true, volume: 0.6, file: null });
 
         // 系统通知兜底（扩展 SW 的 chrome.notifications 是第二通道，这里覆盖纯浏览器场景）
+        // VERY_HIGH：🚨 前缀 + requireInteraction 常驻（Win11 支持，mac 忽略）+ 市值信息
         if (n.systemNotify && "Notification" in window && Notification.permission === "granted") {
-          new Notification(`[${n.grade}] ${n.signal.symbol}`, {
-            body: `${n.signal.chain}｜${n.score.score} 分`,
+          const vh = n.grade === "VERY_HIGH";
+          new Notification(`${vh ? "🚨 " : ""}[${n.grade}] ${n.signal.symbol}`, {
+            body: `${n.signal.chain}｜${n.score.score} 分｜市值 ${fmtUsd(n.signal.market_cap_usd)}`,
             tag: `debot-${n.signal.id}`,
+            requireInteraction: vh,
           }).onclick = () => window.open(n.clickUrl, "_blank", "noopener");
         } else if (n.systemNotify && "Notification" in window && Notification.permission === "default") {
           void Notification.requestPermission();
@@ -214,11 +274,30 @@ export default function NotifyWindow(): JSX.Element {
   return (
     <ConfigProvider theme={isDark ? { algorithm: theme.darkAlgorithm } : undefined}>
       <div className="nq-root" data-theme={isDark ? "dark" : "light"}>
+        <a className="nq-home" href="/" target="_blank" rel="noopener" title="打开 WebUI 主页">
+          主页 ↗
+        </a>
+        {notifPerm === "default" ? (
+          <div
+            className="nq-perm"
+            onClick={() => {
+              void Notification.requestPermission().then(setNotifPerm);
+            }}
+          >
+            🔔 点击开启系统通知（浏览器将请求授权）
+          </div>
+        ) : null}
+        {notifPerm === "denied" ? (
+          <div className="nq-perm nq-perm-denied">系统通知权限已被拒绝：地址栏左侧站点设置 → 通知 → 允许</div>
+        ) : null}
         {visible.length === 0 && stormCount === 0 ? (
           <div className="nq-idle">通知小窗待命中（≥卡片阈值的信号将在此弹出）</div>
         ) : null}
         {visible.map((c) => (
           <Card key={c.key} item={c} isDark={isDark} onDismiss={() => setCards((prev) => prev.filter((x) => x.key !== c.key))} />
+        ))}
+        {rejects.map((r) => (
+          <RejectedCard key={r.key} item={r} onDismiss={() => setRejects((prev) => prev.filter((x) => x.key !== r.key))} />
         ))}
         {stormCount > 0 ? (
           <div className="nq-storm" onClick={() => setStormCount(0)}>

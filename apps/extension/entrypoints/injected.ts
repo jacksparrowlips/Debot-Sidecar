@@ -27,6 +27,30 @@ function post(payload: HookPayload): void {
 }
 
 export default defineUnlistedScript(() => {
+  // ── 可见性欺骗（keepalive.visibilityHook，默认开）──
+  // Edge「始终保持活跃」白名单只防冻结（sleeping tabs），不防 Chromium 后台定时器节流，
+  // 且页面自身常按 document.hidden 停轮询 → 后台标签页数据静止。在页面 JS 运行前覆盖为"始终可见"
+  // （含 L1 静默 reload 发生在后台时，页面加载即自查 document.hidden 的场景）；
+  // content script 拿到配置后经 postMessage 通知还原。
+  const CONTENT_SOURCE = "debot-sidecar-content";
+  function setVisibilityHook(on: boolean): void {
+    if (on) {
+      Object.defineProperty(document, "hidden", { configurable: true, get: () => false });
+      Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "visible" });
+    } else {
+      // 移除实例属性 → 回落 Document.prototype 原生 getter
+      delete (document as { hidden?: unknown }).hidden;
+      delete (document as { visibilityState?: unknown }).visibilityState;
+    }
+  }
+  window.addEventListener("message", (ev) => {
+    if (ev.source !== window) return;
+    const data = ev.data as { source?: unknown; visibilityHook?: unknown } | null;
+    if (data === null || data.source !== CONTENT_SOURCE) return;
+    setVisibilityHook(data.visibilityHook === true);
+  });
+  setVisibilityHook(true);
+
   // Observe the page's existing SharedWorker connection without changing subscriptions.
   if (typeof window.SharedWorker === "function") {
     window.SharedWorker = new Proxy(window.SharedWorker, {

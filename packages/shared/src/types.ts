@@ -250,6 +250,10 @@ export interface KeepaliveConfig {
   l1: boolean;
   /** 信号/网络活动静默超时（分钟），超过后自动刷新 DeBot 标签页 */
   l1SilenceMin: number;
+  /** 音频保活：极低音量 WebAudio 使页面 audible，豁免 Chromium 后台定时器节流/冻结（Edge 白名单不覆盖节流） */
+  audio: boolean;
+  /** 可见性欺骗：MAIN world 覆盖 document.hidden/visibilityState，避免页面因后台标签页自行停轮询 */
+  visibilityHook: boolean;
 }
 
 export interface SidecarConfig {

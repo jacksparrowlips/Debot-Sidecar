@@ -1,3 +1,8 @@
+/* 无限滚动布局：Header(64px) + Content 上下 padding(32px) 之外的区域作为内部滚动容器，标题/筛选固定 */
+.signal-feed{display:flex;flex-direction:column;height:calc(100vh - 96px)}
+.signal-feed-heading,.signal-feed-toolbar,.signal-feed-note{flex:none}
+.signal-feed-scroll{flex:1;min-height:0;overflow-y:auto}
+.signal-feed-more{color:#737d8b;font-size:12px;padding:14px 0;text-align:center}
 .signal-feed-heading,.signal-feed-toolbar{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:16px;flex-wrap:wrap}
 .signal-feed-note{color:#737d8b;font-size:12px;margin:0 0 16px;line-height:1.7}
 .signal-card-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,510px),1fr));gap:16px;margin-top:12px}
@@ -14,5 +19,5 @@
 .signal-performance{width:185px;flex-shrink:0;display:flex;flex-direction:column;align-items:flex-end}.signal-ath-label{font-size:10px;color:#9ca9a5;letter-spacing:1px}.signal-ath{font-size:30px;color:#0a1813;line-height:1.12;padding:0 7px;border-radius:12px 0 12px 0;background:linear-gradient(115deg,#f4e239 20%,#84db69 70%,#00c5a2);margin:5px 0 10px;white-space:nowrap}.signal-chart{width:100%;height:62px;display:block}.signal-chart-empty{height:62px;display:grid;place-items:center;color:#63736d;font-size:11px;width:100%}
 .signal-wallets{border-top:1px solid #303538;border-bottom:1px solid #303538;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:9px 0;margin-top:13px;font-size:12px}.signal-wallets strong{color:#e0d43e;font-weight:500}.signal-wallets>span:last-child{color:#b5bcbe}
 .signal-metrics{display:grid;grid-template-columns:1fr 1fr;gap:8px 14px;padding-top:12px}.signal-metric{display:flex;align-items:baseline;gap:5px;white-space:nowrap;font-size:12px;flex-wrap:wrap}.signal-metric>span:first-child{color:#788486;margin-right:2px}.signal-metric strong{font-weight:500}.signal-arrow{color:#5b686a}.rise{color:#00d7a6!important}.fall{color:#fa4668!important}
-.signal-card-foot{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;color:#697979;font-size:10px;margin-top:12px}.signal-stale{color:#d1ac63;font-size:10px}.signal-feed .ant-alert{margin-bottom:12px}
+.signal-card-foot{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;color:#697979;font-size:10px;margin-top:12px}.signal-stale{color:#d1ac63;font-size:10px}.signal-feed .ant-alert{margin-bottom:12px;flex:none}
 @media(max-width:620px){.signal-card-body{padding:12px}.signal-performance{width:135px}.signal-symbol{font-size:16px}.signal-metrics{grid-template-columns:1fr}.signal-card-hero{gap:8px}.signal-safety{gap:5px}.signal-name{max-width:145px}}

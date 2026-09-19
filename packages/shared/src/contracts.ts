@@ -80,9 +80,11 @@ export interface NotificationMsg {
   grade: Grade;
   signal: SignalSummary;
   score: ScoreResult;
-  /** 是否需要系统通知兜底（等级 >= systemGrade） */
+  /** 是否需要系统通知兜底（强通知：等级 >= systemGrade；REJECT：60s 窗口聚合计数触发） */
   systemNotify: boolean;
   clickUrl: string;
+  /** grade=REJECT 时的一句话过滤原因（命中拒绝规则或总分未达 LOW 线；聚合触发时附窗口计数） */
+  reason?: string;
 }
 
 export interface AlertMsg {

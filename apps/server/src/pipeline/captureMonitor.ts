@@ -11,6 +11,8 @@ const startedAt = Date.now();
 let sequence = 0;
 let errors = 0;
 let lastReceivedAt: number | null = null;
+/** 最近一次信号源捕获（rank/kline）接收时间；与 lastReceivedAt（含 live-market/杂项）区分 */
+let lastSignalAt: number | null = null;
 const records: CaptureDetail[] = [];
 const arrivals: number[] = [];
 const LIMIT = 200;
@@ -43,6 +45,8 @@ export function observeCapture(
   const parsed: unknown[] = [];
   try { if (msg.type !== "capture.duplicate") process(record, parsed); }
   catch (err) { record.status = "error"; record.error = err instanceof Error ? err.message : "处理失败"; }
+  // 信号源判定在 process 内已写入 record.kind（rank/kline = 信号页在供数；live-market/other-api 不算）
+  if (record.kind === "rank" || record.kind === "kline") lastSignalAt = now;
   if (record.status === "error") errors++;
   const raw = msg.type === "capture.raw" ? preview((msg as CaptureRawMsg).data) : "重复响应仅上报元数据；原始数据请查看此前记录。";
   const normalized = preview(parsed);
@@ -52,7 +56,7 @@ export function observeCapture(
 export function captureSnapshot(extensionConnections: number): CaptureSnapshot {
   const now = Date.now();
   while (arrivals.length && arrivals[0]! < now - 60_000) arrivals.shift();
-  return { pageHealth: [...pageHealth.values()].filter(p => now - p.receivedAt < 120_000), startedAt, now, extensionConnections, lastReceivedAt, received: sequence, errors,
+  return { pageHealth: [...pageHealth.values()].filter(p => now - p.receivedAt < 120_000), startedAt, now, extensionConnections, lastReceivedAt, lastSignalAt, received: sequence, errors,
     perMinute: arrivals.length, items: records.map(({ raw, parsed, truncated, ...record }) => record) };
 }
 export function captureDetail(id: number): CaptureDetail | undefined { return records.find(r => r.id === id); }

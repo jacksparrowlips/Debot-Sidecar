@@ -203,7 +203,22 @@ export default function Settings(): JSX.Element {
                 />
               </Space>
             </Form.Item>
-            <span style={{ fontSize: 12, color: "#999" }}>L2（CF 挑战页检测）/ L3（告警升级）随扩展常开</span>
+            <Form.Item label="音频保活（防后台节流）" style={{ marginBottom: 0 }}>
+              <Switch
+                checked={cfg.keepalive.audio}
+                onChange={(v) => setCfg({ ...cfg, keepalive: { ...cfg.keepalive, audio: v } })}
+              />
+            </Form.Item>
+            <Form.Item label="可见性欺骗（visibility hook）" style={{ marginBottom: 0 }}>
+              <Switch
+                checked={cfg.keepalive.visibilityHook}
+                onChange={(v) => setCfg({ ...cfg, keepalive: { ...cfg.keepalive, visibilityHook: v } })}
+              />
+            </Form.Item>
+            <span style={{ fontSize: 12, color: "#999" }}>
+              L2（CF 挑战页检测）/ L3（告警升级）随扩展常开；音频保活需在 DeBot 页面点一次解锁自动播放（生效标志：标签页出现
+              🔊）；开关变更约 1 分钟内生效
+            </span>
           </Space>
         </Card>
 

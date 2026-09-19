@@ -14,6 +14,8 @@ export default defineConfig({
     web_accessible_resources: [
       { resources: ["injected.js"], matches: ["https://debot.ai/*"] },
     ],
+    // 点击工具栏图标跳转 Sidecar 主页（onClicked 在 background.ts 处理）
+    action: { default_title: "打开 DeBot Signal Sidecar 主页" },
     side_panel: { default_path: "sidepanel.html" },
     icons: {
       "16": "icon/16.png",
