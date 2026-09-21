@@ -9,7 +9,6 @@ import "./signal-cards.css";
 /** 无限滚动每批渲染张数：初始只渲染最新 30 张，触底再加载，避免全量渲染上百张卡片 */
 const PAGE_SIZE = 30;
 
-const price = (v: number | null) => v === null ? "—" : `$${v.toLocaleString("en-US", { maximumSignificantDigits: 5 })}`;
 const elapsed = (timestamp: number, now: number) => {
   const seconds = Math.max(0, Math.floor((now - timestamp) / 1000));
   if (seconds < 60) return `${seconds}s`;
@@ -34,11 +33,16 @@ function Sparkline({ card }: { card: SignalCard }): JSX.Element {
 function Card({ card, now }: { card: SignalCard; now: number }): JSX.Element {
   const [copyMessage, setCopyMessage] = useState("");
   const stale = now - card.updatedAt > 60_000;
+  // 起点倍数 = 当前价 ÷ 首次捕获价；跌破 0.5x 视为 rug，整卡置灰（阈值用户拍板）
+  const liveMultiple = card.first.price !== null && card.current.price !== null && card.first.price > 0
+    ? card.current.price / card.first.price
+    : null;
+  const rugged = liveMultiple !== null && liveMultiple < 0.5;
   const copy = async () => {
     try { await navigator.clipboard.writeText(card.ca); setCopyMessage("已复制"); }
     catch { setCopyMessage("复制失败，请选中地址复制"); }
   };
-  return <article className="signal-card" aria-label={`${card.symbol} ${card.chain} 信号卡片`}>
+  return <article className={rugged ? "signal-card signal-rugged" : "signal-card"} aria-label={`${card.symbol} ${card.chain} 信号卡片`}>
     <div className="signal-card-top">
       <span className="signal-count" title="Sidecar 记录的信号事件数，不含冷却期刷新">{card.signalCount}</span>
       <div className="signal-safety">
@@ -62,16 +66,17 @@ function Card({ card, now }: { card: SignalCard; now: number }): JSX.Element {
           <div className="signal-links"><Link to={`/signals/${card.signalId}`}>信号详情 ↗</Link><GradeTag grade={card.grade} /><span>{card.score} 分</span></div>
         </div>
         <div className="signal-performance">
+          <span className="signal-ath-label" title="当前价 ÷ 首次捕获价（SPEC 实时信号卡片起点倍数）">起点倍数</span>
+          <strong className={rugged ? "signal-ath signal-ath-down" : "signal-ath"}>{liveMultiple === null ? "—" : `${Number(liveMultiple.toFixed(2))}x`}</strong>
           <span className="signal-ath-label" title="首次捕获之后最高已记录价格 ÷ 首次捕获价格；并非发行以来的历史 ATH">起点后 ATH</span>
-          <strong className="signal-ath">{card.athMultiple === null ? "—" : `${Number(card.athMultiple.toFixed(2))}x`}</strong>
+          <strong className="signal-ath-sec">{card.athMultiple === null ? "—" : `${Number(card.athMultiple.toFixed(2))}x`}</strong>
           <Sparkline card={card} />
         </div>
       </div>
-      <div className="signal-wallets"><span>▣ <strong>{card.smartWallets ?? "—"} 个聪明钱包</strong> 在线</span><span title="当前榜单响应未提供同时买入的平均金额">平均买入金额 {fmtUsd(card.averageBuyUsd)}</span></div>
+      <div className="signal-wallets"><span>▣ <strong>{card.smartWallets ?? "—"} 个聪明钱包</strong> 在线</span></div>
       <div className="signal-metrics">
         <Metric label="市值" from={card.first.marketCap} to={card.current.marketCap} />
         <Metric label="持有人" from={card.first.holders} to={card.current.holders} format={v => fmtNum(v, 0)} />
-        <Metric label="价格" from={card.first.price} to={card.current.price} format={price} />
         <Metric label="流动性" from={card.first.liquidity} to={card.current.liquidity} />
       </div>
       <div className="signal-card-foot"><span>首次捕获 → 当前快照</span><span className={stale ? "signal-stale" : ""}>快照 {elapsed(card.updatedAt, now)} 前 · 价格 {elapsed(card.priceAt, now)} 前</span></div>
